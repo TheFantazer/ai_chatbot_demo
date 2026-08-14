@@ -1,0 +1,34 @@
+services:
+  booking-service:
+    build:
+      context: ..
+      dockerfile: services/booking-service/Dockerfile
+    environment:
+      BOOKING_HTTP_ADDR: ":8081"
+      HTTP_TIMEOUT: "5s"
+      YCLIENTS_BASE_URL: "${YCLIENTS_BASE_URL:-}"
+      YCLIENTS_PARTNER_TOKEN: "${YCLIENTS_PARTNER_TOKEN:-}"
+      YCLIENTS_USER_TOKEN: "${YCLIENTS_USER_TOKEN:-}"
+      YCLIENTS_COMPANY_ID: "${YCLIENTS_COMPANY_ID:-}"
+    ports:
+      - "8081:8081"
+
+  bot-orchestrator:
+    build:
+      context: ..
+      dockerfile: services/bot-orchestrator/Dockerfile
+    depends_on:
+      - booking-service
+    environment:
+      BOT_HTTP_ADDR: ":8080"
+      BOOKING_SERVICE_URL: "http://booking-service:8081"
+      HTTP_TIMEOUT: "5s"
+      CONVERSATION_TTL: "30m"
+      YANDEX_API_KEY: "${YANDEX_API_KEY:-}"
+      YANDEX_FOLDER_ID: "${YANDEX_FOLDER_ID:-}"
+      YANDEX_MODEL: "${YANDEX_MODEL:-}"
+      VK_GROUP_ID: "${VK_GROUP_ID:-}"
+      VK_TOKEN: "${VK_TOKEN:-}"
+      VK_API_VERSION: "${VK_API_VERSION:-}"
+    ports:
+      - "8080:8080"

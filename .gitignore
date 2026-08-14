@@ -1,0 +1,10 @@
+.env
+.env.example
+.idea/
+AGENTS.md
+bin/
+coverage.out
+*.log
+*.db
+*.sqlite
+Makefile
