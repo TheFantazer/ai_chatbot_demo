@@ -74,12 +74,12 @@ func (c *Client) GetRecord(
 func (c *Client) CreateRecord(
 	ctx context.Context,
 	request CreateRecordRequest,
-) ([]Record, error) {
+) (Record, error) {
 	if err := validateRecordRequest(request); err != nil {
-		return nil, err
+		return Record{}, err
 	}
 
-	var response recordsResponse
+	var response recordResponse
 	if err := c.do(
 		ctx,
 		http.MethodPost,
@@ -89,13 +89,13 @@ func (c *Client) CreateRecord(
 		&response,
 		http.StatusCreated,
 	); err != nil {
-		return nil, err
+		return Record{}, err
 	}
 	if !response.Success {
-		return nil, ErrUnsuccessfulResponse
+		return Record{}, ErrUnsuccessfulResponse
 	}
-	if len(response.Data) == 0 {
-		return nil, errors.New("YCLIENTS returned no created records")
+	if response.Data.ID <= 0 {
+		return Record{}, errors.New("YCLIENTS returned no created record")
 	}
 	return response.Data, nil
 }

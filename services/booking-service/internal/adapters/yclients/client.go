@@ -27,11 +27,6 @@ func New(config Config, httpClient *http.Client) *Client {
 	return &Client{config: config, http: httpClient}
 }
 
-// implement me
-func (c *Client) ListServices(context.Context) ([]bookingcontract.Service, error) {
-	return nil, ErrNotImplemented
-}
-
 func (c *Client) SearchSlots(
 	context.Context,
 	bookingcontract.SearchSlotsRequest,

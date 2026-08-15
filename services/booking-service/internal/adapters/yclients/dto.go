@@ -2,6 +2,7 @@ package yclients
 
 import (
 	"encoding/json"
+	"fmt"
 	"time"
 )
 
@@ -47,9 +48,10 @@ type RecordService struct {
 }
 
 type RecordClient struct {
-	ID          int64  `json:"id"`
-	Name        string `json:"name"`
-	DisplayName string `json:"display_name"`
+	ID          int64    `json:"id"`
+	Name        string   `json:"name"`
+	DisplayName string   `json:"display_name"`
+	Phone       stringID `json:"phone"`
 }
 
 type RecordServiceInput struct {
@@ -82,16 +84,21 @@ type CreateRecordRequest struct {
 
 type UpdateRecordRequest CreateRecordRequest
 
+type serviceDTO struct {
+	ID    stringID `json:"id"`
+	Title string   `json:"title"`
+}
+
+type servicesResponse struct {
+	Success bool         `json:"success"`
+	Data    []serviceDTO `json:"data"`
+	Meta    countMeta    `json:"meta"`
+}
+
 type listRecordsResponse struct {
 	Success bool       `json:"success"`
 	Data    []Record   `json:"data"`
 	Meta    recordMeta `json:"meta"`
-}
-
-type recordsResponse struct {
-	Success bool            `json:"success"`
-	Data    []Record        `json:"data"`
-	Meta    json.RawMessage `json:"meta"`
 }
 
 type recordResponse struct {
@@ -103,4 +110,25 @@ type recordResponse struct {
 type recordMeta struct {
 	Page       int `json:"page"`
 	TotalCount int `json:"total_count"`
+}
+
+type countMeta struct {
+	TotalCount int `json:"total_count"`
+}
+
+type stringID string
+
+func (id *stringID) UnmarshalJSON(data []byte) error {
+	var stringValue string
+	if err := json.Unmarshal(data, &stringValue); err == nil {
+		*id = stringID(stringValue)
+		return nil
+	}
+
+	var numberValue json.Number
+	if err := json.Unmarshal(data, &numberValue); err != nil {
+		return fmt.Errorf("decode ID: %w", err)
+	}
+	*id = stringID(numberValue.String())
+	return nil
 }

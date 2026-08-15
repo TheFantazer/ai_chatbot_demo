@@ -25,7 +25,7 @@ func Load() (Config, error) {
 	return Config{
 		HTTPAddr:             value("BOOKING_HTTP_ADDR", ":8081"),
 		HTTPTimeout:          httpTimeout,
-		YClientsBaseURL:      os.Getenv("YCLIENTS_BASE_URL"),
+		YClientsBaseURL:      value("YCLIENTS_BASE_URL", "https://api.yclients.com"),
 		YClientsPartnerToken: os.Getenv("YCLIENTS_PARTNER_TOKEN"),
 		YClientsUserToken:    os.Getenv("YCLIENTS_USER_TOKEN"),
 		YClientsCompanyID:    os.Getenv("YCLIENTS_COMPANY_ID"),
