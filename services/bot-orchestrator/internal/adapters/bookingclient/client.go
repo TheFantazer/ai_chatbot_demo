@@ -25,17 +25,11 @@ func (c *Client) ListServices(context.Context) ([]bookingcontract.Service, error
 	return nil, ErrNotImplemented
 }
 
-func (c *Client) SearchSlots(
-	context.Context,
-	bookingcontract.SearchSlotsRequest,
-) ([]bookingcontract.Slot, error) {
+func (c *Client) SearchSlots(context.Context, bookingcontract.SearchSlotsRequest) ([]bookingcontract.Slot, error) {
 	return nil, ErrNotImplemented
 }
 
-func (c *Client) CreateBooking(
-	context.Context,
-	bookingcontract.CreateBookingRequest,
-) (bookingcontract.BookingResult, error) {
+func (c *Client) CreateBooking(context.Context, bookingcontract.CreateBookingRequest) (bookingcontract.BookingResult, error) {
 	return bookingcontract.BookingResult{}, ErrNotImplemented
 }
 

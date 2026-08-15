@@ -27,17 +27,11 @@ func New(config Config, httpClient *http.Client) *Client {
 	return &Client{config: config, http: httpClient}
 }
 
-func (c *Client) SearchSlots(
-	context.Context,
-	bookingcontract.SearchSlotsRequest,
-) ([]bookingcontract.Slot, error) {
+func (c *Client) SearchSlots(context.Context, bookingcontract.SearchSlotsRequest) ([]bookingcontract.Slot, error) {
 	return nil, ErrNotImplemented
 }
 
-func (c *Client) CreateBooking(
-	context.Context,
-	bookingcontract.CreateBookingRequest,
-) (bookingcontract.BookingResult, error) {
+func (c *Client) CreateBooking(context.Context, bookingcontract.CreateBookingRequest) (bookingcontract.BookingResult, error) {
 	return bookingcontract.BookingResult{}, ErrNotImplemented
 }
 

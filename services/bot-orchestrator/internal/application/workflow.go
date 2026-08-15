@@ -13,11 +13,7 @@ type Workflow struct {
 	booking     BookingGateway
 }
 
-func NewWorkflow(
-	store ConversationStore,
-	interpreter Interpreter,
-	booking BookingGateway,
-) *Workflow {
+func NewWorkflow(store ConversationStore, interpreter Interpreter, booking BookingGateway) *Workflow {
 	return &Workflow{
 		store:       store,
 		interpreter: interpreter,
@@ -26,9 +22,6 @@ func NewWorkflow(
 }
 
 // implement me
-func (w *Workflow) HandleMessage(
-	_ context.Context,
-	_ InboundMessage,
-) (OutboundMessage, error) {
+func (w *Workflow) HandleMessage(_ context.Context, _ InboundMessage) (OutboundMessage, error) {
 	return OutboundMessage{}, ErrWorkflowNotImplemented
 }

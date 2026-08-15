@@ -32,15 +32,7 @@ func (e *HTTPError) Error() string {
 	return fmt.Sprintf("YCLIENTS returned HTTP status %d: %s", e.StatusCode, e.Body)
 }
 
-func (c *Client) do(
-	ctx context.Context,
-	method string,
-	endpoint string,
-	query url.Values,
-	requestBody any,
-	responseBody any,
-	expectedStatus int,
-) error {
+func (c *Client) do(ctx context.Context, method string, endpoint string, query url.Values, requestBody any, responseBody any, expectedStatus int) error {
 	if err := c.validateConfiguration(); err != nil {
 		return err
 	}

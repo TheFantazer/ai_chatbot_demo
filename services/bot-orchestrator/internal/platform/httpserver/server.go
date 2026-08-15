@@ -8,12 +8,7 @@ import (
 	"time"
 )
 
-func Run(
-	ctx context.Context,
-	addr string,
-	handler http.Handler,
-	logger *slog.Logger,
-) error {
+func Run(ctx context.Context, addr string, handler http.Handler, logger *slog.Logger) error {
 	server := &http.Server{
 		Addr:              addr,
 		Handler:           handler,

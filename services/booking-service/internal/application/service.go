@@ -29,17 +29,11 @@ func (s *Service) ListServices(context.Context) ([]bookingcontract.Service, erro
 }
 
 // implement me
-func (s *Service) SearchSlots(
-	context.Context,
-	bookingcontract.SearchSlotsRequest,
-) ([]bookingcontract.Slot, error) {
+func (s *Service) SearchSlots(context.Context, bookingcontract.SearchSlotsRequest) ([]bookingcontract.Slot, error) {
 	return nil, ErrApplicationNotImplemented
 }
 
 // implement me
-func (s *Service) CreateBooking(
-	context.Context,
-	bookingcontract.CreateBookingRequest,
-) (bookingcontract.BookingResult, error) {
+func (s *Service) CreateBooking(context.Context, bookingcontract.CreateBookingRequest) (bookingcontract.BookingResult, error) {
 	return bookingcontract.BookingResult{}, ErrApplicationNotImplemented
 }

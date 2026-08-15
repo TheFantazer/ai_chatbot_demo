@@ -26,10 +26,7 @@ func New(config Config, httpClient *http.Client) *Client {
 }
 
 // implement me
-func (c *Client) Interpret(
-	context.Context,
-	application.InterpretationRequest,
-) (application.ActionEnvelope, error) {
+func (c *Client) Interpret(context.Context, application.InterpretationRequest) (application.ActionEnvelope, error) {
 	return application.ActionEnvelope{}, ErrNotImplemented
 }
 

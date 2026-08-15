@@ -14,10 +14,7 @@ func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{states: make(map[string]ConversationState)}
 }
 
-func (s *MemoryStore) Load(
-	_ context.Context,
-	conversationID string,
-) (ConversationState, bool, error) {
+func (s *MemoryStore) Load(_ context.Context, conversationID string) (ConversationState, bool, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 

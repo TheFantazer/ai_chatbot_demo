@@ -13,10 +13,7 @@ import (
 
 var ErrInvalidRecord = errors.New("invalid YCLIENTS record")
 
-func (c *Client) ListRecords(
-	ctx context.Context,
-	filter ListRecordsFilter,
-) (RecordPage, error) {
+func (c *Client) ListRecords(ctx context.Context, filter ListRecordsFilter) (RecordPage, error) {
 	query, err := filter.values()
 	if err != nil {
 		return RecordPage{}, err
@@ -45,10 +42,7 @@ func (c *Client) ListRecords(
 	}, nil
 }
 
-func (c *Client) GetRecord(
-	ctx context.Context,
-	recordID int64,
-) (Record, error) {
+func (c *Client) GetRecord(ctx context.Context, recordID int64) (Record, error) {
 	if recordID <= 0 {
 		return Record{}, fmt.Errorf("%w: record ID must be positive", ErrInvalidRecord)
 	}
@@ -71,10 +65,7 @@ func (c *Client) GetRecord(
 	return response.Data, nil
 }
 
-func (c *Client) CreateRecord(
-	ctx context.Context,
-	request CreateRecordRequest,
-) (Record, error) {
+func (c *Client) CreateRecord(ctx context.Context, request CreateRecordRequest) (Record, error) {
 	if err := validateRecordRequest(request); err != nil {
 		return Record{}, err
 	}
@@ -100,11 +91,7 @@ func (c *Client) CreateRecord(
 	return response.Data, nil
 }
 
-func (c *Client) UpdateRecord(
-	ctx context.Context,
-	recordID int64,
-	request UpdateRecordRequest,
-) (Record, error) {
+func (c *Client) UpdateRecord(ctx context.Context, recordID int64, request UpdateRecordRequest) (Record, error) {
 	if recordID <= 0 {
 		return Record{}, fmt.Errorf("%w: record ID must be positive", ErrInvalidRecord)
 	}
