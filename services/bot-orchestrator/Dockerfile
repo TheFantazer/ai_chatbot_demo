@@ -6,7 +6,7 @@ COPY go.mod ./
 COPY contracts ./contracts
 COPY services/bot-orchestrator ./services/bot-orchestrator
 
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -o /out/service ./services/bot-orchestrator
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -o /out/service ./services/bot-orchestrator/cmd/bot-orchestrator
 
 FROM alpine:3.22
 

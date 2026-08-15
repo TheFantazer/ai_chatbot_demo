@@ -6,7 +6,7 @@ COPY go.mod ./
 COPY contracts ./contracts
 COPY services/booking-service ./services/booking-service
 
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -o /out/service ./services/booking-service
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -o /out/service ./services/booking-service/cmd/booking-service
 
 FROM alpine:3.22
 

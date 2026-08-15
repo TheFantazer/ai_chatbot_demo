@@ -1,7 +1,6 @@
 package httpapi
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -11,21 +10,6 @@ import (
 )
 
 const maxRequestBytes = 1 << 20
-
-type Application interface {
-	HandleMessage(context.Context, application.InboundMessage) (application.OutboundMessage, error)
-}
-
-type server struct {
-	app Application
-}
-
-func New(app Application) http.Handler {
-	s := &server{app: app}
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /v1/messages", s.handleMessage)
-	return mux
-}
 
 func (s *server) handleMessage(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBytes)
