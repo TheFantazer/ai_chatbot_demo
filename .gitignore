@@ -4,6 +4,7 @@
 AGENTS.md
 bin/
 coverage.out
+*_test.go
 *.log
 *.db
 *.sqlite
