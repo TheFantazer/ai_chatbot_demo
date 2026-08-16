@@ -71,8 +71,9 @@ const (
 )
 
 type ActionEnvelope struct {
-	Action    ActionType      `json:"action"`
-	Arguments ActionArguments `json:"arguments"`
+	Action        ActionType      `json:"action"`
+	Arguments     ActionArguments `json:"arguments"`
+	StateRevision uint64          `json:"state_revision"`
 }
 
 type ActionArguments struct {
