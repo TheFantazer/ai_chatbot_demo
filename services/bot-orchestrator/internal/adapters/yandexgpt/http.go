@@ -92,6 +92,11 @@ func (c *Client) do(ctx context.Context, requestBody completionRequest) (complet
 	if err := json.Unmarshal(encodedResponse, &result); err != nil {
 		return completionResponse{}, fmt.Errorf("decode YandexGPT response: %w", err)
 	}
+	if len(result.Alternatives) == 0 && result.Result != nil {
+		result.Alternatives = result.Result.Alternatives
+		result.Usage = result.Result.Usage
+		result.ModelVersion = result.Result.ModelVersion
+	}
 	return result, nil
 }
 

@@ -28,6 +28,13 @@ type jsonSchema struct {
 }
 
 type completionResponse struct {
+	Alternatives []alternative     `json:"alternatives"`
+	Usage        usage             `json:"usage"`
+	ModelVersion string            `json:"modelVersion"`
+	Result       *completionResult `json:"result,omitempty"`
+}
+
+type completionResult struct {
 	Alternatives []alternative `json:"alternatives"`
 	Usage        usage         `json:"usage"`
 	ModelVersion string        `json:"modelVersion"`
