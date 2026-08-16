@@ -30,6 +30,7 @@ func main() {
 		PartnerToken: cfg.YClientsPartnerToken,
 		UserToken:    cfg.YClientsUserToken,
 		CompanyID:    cfg.YClientsCompanyID,
+		Timezone:     cfg.BusinessTimezone,
 	}, httpClient)
 	bookingService := application.NewService(provider)
 

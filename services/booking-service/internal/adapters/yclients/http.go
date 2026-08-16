@@ -118,6 +118,8 @@ func (c *Client) validateConfiguration() error {
 		return fmt.Errorf("%w: user token is required", ErrInvalidConfiguration)
 	case strings.TrimSpace(c.config.CompanyID) == "":
 		return fmt.Errorf("%w: company ID is required", ErrInvalidConfiguration)
+	case strings.TrimSpace(c.config.Timezone) == "":
+		return fmt.Errorf("%w: timezone is required", ErrInvalidConfiguration)
 	default:
 		return nil
 	}

@@ -116,6 +116,27 @@ type countMeta struct {
 	TotalCount int `json:"total_count"`
 }
 
+type bookStaffDTO struct {
+	ID       stringID `json:"id"`
+	Bookable *bool    `json:"bookable"`
+}
+
+type bookStaffResponse struct {
+	Success bool           `json:"success"`
+	Data    []bookStaffDTO `json:"data"`
+}
+
+type bookTimeDTO struct {
+	Time         string   `json:"time"`
+	SeanceLength int      `json:"seance_length"`
+	DateTime     unixTime `json:"datetime"`
+}
+
+type bookTimesResponse struct {
+	Success bool          `json:"success"`
+	Data    []bookTimeDTO `json:"data"`
+}
+
 type stringID string
 
 func (id *stringID) UnmarshalJSON(data []byte) error {
@@ -130,5 +151,35 @@ func (id *stringID) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decode ID: %w", err)
 	}
 	*id = stringID(numberValue.String())
+	return nil
+}
+
+type unixTime int64
+
+func (value *unixTime) UnmarshalJSON(data []byte) error {
+	var number json.Number
+	if err := json.Unmarshal(data, &number); err == nil {
+		parsed, err := number.Int64()
+		if err != nil {
+			return fmt.Errorf("decode Unix time: %w", err)
+		}
+		*value = unixTime(parsed)
+		return nil
+	}
+
+	var encoded string
+	if err := json.Unmarshal(data, &encoded); err != nil {
+		return fmt.Errorf("decode Unix time: %w", err)
+	}
+	parsed, err := time.Parse(time.RFC3339, encoded)
+	if err == nil {
+		*value = unixTime(parsed.Unix())
+		return nil
+	}
+	seconds, err := json.Number(encoded).Int64()
+	if err != nil {
+		return fmt.Errorf("decode Unix time: %w", err)
+	}
+	*value = unixTime(seconds)
 	return nil
 }

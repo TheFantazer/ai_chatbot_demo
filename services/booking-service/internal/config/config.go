@@ -14,6 +14,7 @@ type Config struct {
 	YClientsPartnerToken string
 	YClientsUserToken    string
 	YClientsCompanyID    string
+	BusinessTimezone     string
 }
 
 func Load() (Config, error) {
@@ -29,6 +30,7 @@ func Load() (Config, error) {
 		YClientsPartnerToken: os.Getenv("YCLIENTS_PARTNER_TOKEN"),
 		YClientsUserToken:    os.Getenv("YCLIENTS_USER_TOKEN"),
 		YClientsCompanyID:    os.Getenv("YCLIENTS_COMPANY_ID"),
+		BusinessTimezone:     value("BUSINESS_TIMEZONE", "Europe/Moscow"),
 	}, nil
 }
 

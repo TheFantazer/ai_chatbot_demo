@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"sync"
 
 	bookingcontract "ai-chatbot/contracts/bookingapi"
 	"ai-chatbot/services/booking-service/internal/application"
@@ -16,19 +17,18 @@ type Config struct {
 	PartnerToken string
 	UserToken    string
 	CompanyID    string
+	Timezone     string
 }
 
 type Client struct {
-	config Config
-	http   *http.Client
+	config  Config
+	http    *http.Client
+	slotsMu sync.RWMutex
+	slots   map[string]slotReference
 }
 
 func New(config Config, httpClient *http.Client) *Client {
-	return &Client{config: config, http: httpClient}
-}
-
-func (c *Client) SearchSlots(context.Context, bookingcontract.SearchSlotsRequest) ([]bookingcontract.Slot, error) {
-	return nil, ErrNotImplemented
+	return &Client{config: config, http: httpClient, slots: make(map[string]slotReference)}
 }
 
 func (c *Client) CreateBooking(context.Context, bookingcontract.CreateBookingRequest) (bookingcontract.BookingResult, error) {
