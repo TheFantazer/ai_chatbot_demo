@@ -11,6 +11,7 @@ type Config struct {
 	BookingServiceURL string
 	HTTPTimeout       time.Duration
 	ConversationTTL   time.Duration
+	BusinessTimezone  string
 
 	YandexAPIKey   string
 	YandexFolderID string
@@ -37,6 +38,7 @@ func Load() (Config, error) {
 		BookingServiceURL: value("BOOKING_SERVICE_URL", "http://localhost:8081"),
 		HTTPTimeout:       httpTimeout,
 		ConversationTTL:   conversationTTL,
+		BusinessTimezone:  value("BUSINESS_TIMEZONE", "Europe/Moscow"),
 		YandexAPIKey:      os.Getenv("YANDEX_API_KEY"),
 		YandexFolderID:    os.Getenv("YANDEX_FOLDER_ID"),
 		YandexModel:       os.Getenv("YANDEX_MODEL"),

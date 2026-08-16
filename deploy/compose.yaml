@@ -10,6 +10,7 @@ services:
       YCLIENTS_PARTNER_TOKEN: "${YCLIENTS_PARTNER_TOKEN:-}"
       YCLIENTS_USER_TOKEN: "${YCLIENTS_USER_TOKEN:-}"
       YCLIENTS_COMPANY_ID: "${YCLIENTS_COMPANY_ID:-}"
+      BUSINESS_TIMEZONE: "${BUSINESS_TIMEZONE:-Europe/Moscow}"
     ports:
       - "8081:8081"
 
@@ -24,6 +25,7 @@ services:
       BOOKING_SERVICE_URL: "http://booking-service:8081"
       HTTP_TIMEOUT: "5s"
       CONVERSATION_TTL: "30m"
+      BUSINESS_TIMEZONE: "${BUSINESS_TIMEZONE:-Europe/Moscow}"
       YANDEX_API_KEY: "${YANDEX_API_KEY:-}"
       YANDEX_FOLDER_ID: "${YANDEX_FOLDER_ID:-}"
       YANDEX_MODEL: "${YANDEX_MODEL:-}"

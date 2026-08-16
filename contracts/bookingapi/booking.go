@@ -8,9 +8,8 @@ type Service struct {
 }
 
 type SearchSlotsRequest struct {
-	ServiceID string    `json:"service_id"`
-	From      time.Time `json:"from"`
-	To        time.Time `json:"to"`
+	ServiceID string `json:"service_id"`
+	Date      string `json:"date"`
 }
 
 type Slot struct {

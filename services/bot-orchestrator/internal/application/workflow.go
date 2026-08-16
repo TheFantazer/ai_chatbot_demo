@@ -17,11 +17,15 @@ type Workflow struct {
 	store       ConversationStore
 	interpreter Interpreter
 	booking     BookingGateway
+	location    *time.Location
 	locks       sync.Map
 }
 
-func NewWorkflow(store ConversationStore, interpreter Interpreter, booking BookingGateway) *Workflow {
-	return &Workflow{store: store, interpreter: interpreter, booking: booking}
+func NewWorkflow(store ConversationStore, interpreter Interpreter, booking BookingGateway, location *time.Location) *Workflow {
+	if location == nil {
+		location = time.UTC
+	}
+	return &Workflow{store: store, interpreter: interpreter, booking: booking, location: location}
 }
 
 func (w *Workflow) HandleMessage(ctx context.Context, message InboundMessage) (OutboundMessage, error) {
@@ -107,9 +111,15 @@ func (w *Workflow) initializeState(ctx context.Context, conversationID string) (
 func (w *Workflow) applyEffects(ctx context.Context, state *ConversationState, effects []Effect) error {
 	for _, effect := range effects {
 		switch effect.Type {
+		case EffectPrepareDates:
+			state.OfferedDates = make(map[string]DateSnapshot, 14)
+			today := beginningOfBusinessDay(time.Now().In(w.location))
+			for offset := 0; offset < 14; offset++ {
+				date := today.AddDate(0, 0, offset).Format(time.DateOnly)
+				state.OfferedDates[date] = DateSnapshot{Date: date}
+			}
 		case EffectSearchSlots:
-			from := time.Now().UTC()
-			slots, err := w.booking.SearchSlots(ctx, bookingcontract.SearchSlotsRequest{ServiceID: effect.ServiceID, From: from, To: from.AddDate(0, 0, 14)})
+			slots, err := w.booking.SearchSlots(ctx, bookingcontract.SearchSlotsRequest{ServiceID: effect.ServiceID, Date: effect.Date})
 			if err != nil {
 				return fmt.Errorf("search slots: %w", err)
 			}
@@ -119,7 +129,7 @@ func (w *Workflow) applyEffects(ctx context.Context, state *ConversationState, e
 				if id == "" || slot.ServiceID != effect.ServiceID || slot.StartsAt.IsZero() {
 					return fmt.Errorf("search slots: invalid slot")
 				}
-				state.OfferedSlots[id] = SlotSnapshot{ID: id, ServiceID: slot.ServiceID, StartsAt: slot.StartsAt}
+				state.OfferedSlots[id] = SlotSnapshot{ID: id, ServiceID: slot.ServiceID, Date: effect.Date, StartsAt: slot.StartsAt.In(w.location)}
 			}
 		default:
 			return fmt.Errorf("unknown workflow effect %q", effect.Type)
@@ -171,6 +181,8 @@ func RenderReply(state ConversationState) (OutboundMessage, error) {
 	switch state.Step {
 	case StepWaitingForService:
 		return OutboundMessage{Kind: OutboundText, Text: renderServices(state.OfferedServices)}, nil
+	case StepWaitingForDate:
+		return OutboundMessage{Kind: OutboundText, Text: renderDates(state.OfferedDates)}, nil
 	case StepWaitingForTime:
 		return OutboundMessage{Kind: OutboundText, Text: renderSlots(state.OfferedSlots)}, nil
 	case StepWaitingForContact:
@@ -218,19 +230,41 @@ func renderServices(services map[string]ServiceSnapshot) string {
 
 func renderSlots(slots map[string]SlotSnapshot) string {
 	if len(slots) == 0 {
-		return "На ближайшие 14 дней свободных слотов нет."
+		return "На выбранную дату свободного времени нет. Выберите другую дату."
 	}
-	ids := make([]string, 0, len(slots))
-	for id := range slots {
-		ids = append(ids, id)
+	values := make([]SlotSnapshot, 0, len(slots))
+	for _, slot := range slots {
+		values = append(values, slot)
 	}
-	sort.Strings(ids)
-	lines := make([]string, 0, len(ids)+1)
+	sort.Slice(values, func(i int, j int) bool {
+		if values[i].StartsAt.Equal(values[j].StartsAt) {
+			return values[i].ID < values[j].ID
+		}
+		return values[i].StartsAt.Before(values[j].StartsAt)
+	})
+	lines := make([]string, 0, len(values)+1)
 	lines = append(lines, "Выберите время:")
-	for _, id := range ids {
-		lines = append(lines, fmt.Sprintf("%s — %s", id, slots[id].StartsAt.Format("02.01.2006 15:04")))
+	for _, slot := range values {
+		lines = append(lines, fmt.Sprintf("%s — %s", slot.ID, slot.StartsAt.Format("02.01.2006 15:04")))
 	}
 	return strings.Join(lines, "\n")
+}
+
+func renderDates(dates map[string]DateSnapshot) string {
+	if len(dates) == 0 {
+		return "Сейчас нет доступных дат."
+	}
+	values := make([]string, 0, len(dates))
+	for date := range dates {
+		values = append(values, date)
+	}
+	sort.Strings(values)
+	return "Выберите дату от " + values[0] + " до " + values[len(values)-1] + "."
+}
+
+func beginningOfBusinessDay(value time.Time) time.Time {
+	year, month, day := value.Date()
+	return time.Date(year, month, day, 0, 0, 0, 0, value.Location())
 }
 
 func isExplicitConfirmation(text string) bool {

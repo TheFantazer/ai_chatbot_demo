@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	bookingcontract "ai-chatbot/contracts/bookingapi"
 )
@@ -30,8 +31,11 @@ func (s *Service) ListServices(ctx context.Context) ([]bookingcontract.Service, 
 }
 
 func (s *Service) SearchSlots(ctx context.Context, request bookingcontract.SearchSlotsRequest) ([]bookingcontract.Slot, error) {
-	if strings.TrimSpace(request.ServiceID) == "" || request.From.IsZero() || request.To.IsZero() || !request.From.Before(request.To) {
-		return nil, fmt.Errorf("%w: service ID and valid time range are required", ErrInvalidRequest)
+	if strings.TrimSpace(request.ServiceID) == "" {
+		return nil, fmt.Errorf("%w: service ID is required", ErrInvalidRequest)
+	}
+	if _, err := time.Parse(time.DateOnly, request.Date); err != nil {
+		return nil, fmt.Errorf("%w: date must use YYYY-MM-DD", ErrInvalidRequest)
 	}
 	return s.provider.SearchSlots(ctx, request)
 }

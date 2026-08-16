@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
+	_ "time/tzdata"
 
 	"ai-chatbot/services/bot-orchestrator/internal/adapters/bookingclient"
 	"ai-chatbot/services/bot-orchestrator/internal/adapters/yandexgpt"
@@ -33,7 +35,12 @@ func main() {
 		Model:    cfg.YandexModel,
 	}, httpClient)
 	bookingGateway := bookingclient.New(cfg.BookingServiceURL, httpClient)
-	workflow := application.NewWorkflow(store, interpreter, bookingGateway)
+	location, err := time.LoadLocation(cfg.BusinessTimezone)
+	if err != nil {
+		logger.Error("load business timezone", "error", err)
+		os.Exit(1)
+	}
+	workflow := application.NewWorkflow(store, interpreter, bookingGateway, location)
 
 	ctx, stop := signal.NotifyContext(
 		context.Background(),
