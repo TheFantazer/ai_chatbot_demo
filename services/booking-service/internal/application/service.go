@@ -3,11 +3,13 @@ package application
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 
 	bookingcontract "ai-chatbot/contracts/bookingapi"
 )
 
-var ErrApplicationNotImplemented = errors.New("booking application is not implemented")
+var ErrInvalidRequest = errors.New("invalid booking request")
 
 type Provider interface {
 	ListServices(context.Context) ([]bookingcontract.Service, error)
@@ -23,17 +25,20 @@ func NewService(provider Provider) *Service {
 	return &Service{provider: provider}
 }
 
-// implement me
-func (s *Service) ListServices(context.Context) ([]bookingcontract.Service, error) {
-	return nil, ErrApplicationNotImplemented
+func (s *Service) ListServices(ctx context.Context) ([]bookingcontract.Service, error) {
+	return s.provider.ListServices(ctx)
 }
 
-// implement me
-func (s *Service) SearchSlots(context.Context, bookingcontract.SearchSlotsRequest) ([]bookingcontract.Slot, error) {
-	return nil, ErrApplicationNotImplemented
+func (s *Service) SearchSlots(ctx context.Context, request bookingcontract.SearchSlotsRequest) ([]bookingcontract.Slot, error) {
+	if strings.TrimSpace(request.ServiceID) == "" || request.From.IsZero() || request.To.IsZero() || !request.From.Before(request.To) {
+		return nil, fmt.Errorf("%w: service ID and valid time range are required", ErrInvalidRequest)
+	}
+	return s.provider.SearchSlots(ctx, request)
 }
 
-// implement me
-func (s *Service) CreateBooking(context.Context, bookingcontract.CreateBookingRequest) (bookingcontract.BookingResult, error) {
-	return bookingcontract.BookingResult{}, ErrApplicationNotImplemented
+func (s *Service) CreateBooking(ctx context.Context, request bookingcontract.CreateBookingRequest) (bookingcontract.BookingResult, error) {
+	if strings.TrimSpace(request.OperationID) == "" || strings.TrimSpace(request.ServiceID) == "" || strings.TrimSpace(request.SlotID) == "" || strings.TrimSpace(request.Customer.Name) == "" || strings.TrimSpace(request.Customer.Phone) == "" {
+		return bookingcontract.BookingResult{}, fmt.Errorf("%w: operation, service, slot and customer are required", ErrInvalidRequest)
+	}
+	return s.provider.CreateBooking(ctx, request)
 }

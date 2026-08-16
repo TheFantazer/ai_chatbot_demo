@@ -60,8 +60,8 @@ func decode(w http.ResponseWriter, r *http.Request, target any) bool {
 }
 
 func writeApplicationError(w http.ResponseWriter, err error) {
-	if errors.Is(err, application.ErrApplicationNotImplemented) {
-		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": err.Error()})
+	if errors.Is(err, application.ErrInvalidRequest) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 
