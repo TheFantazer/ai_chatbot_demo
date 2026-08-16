@@ -144,7 +144,16 @@ func validateActionEnvelope(req application.InterpretationRequest, action applic
 			return fmt.Errorf("%w: slot_id was not offered", ErrInvalidModelResponse)
 		}
 	}
-	if action.Action == application.ActionChooseService || action.Action == application.ActionChangeService && strings.TrimSpace(action.Arguments.ServiceID) != "" {
+	if action.Action == application.ActionChooseDate || (action.Action == application.ActionChangeDate && strings.TrimSpace(action.Arguments.Date) != "") {
+		date := strings.TrimSpace(action.Arguments.Date)
+		if date == "" {
+			return fmt.Errorf("%w: %s requires date", ErrInvalidModelResponse, action.Action)
+		}
+		if _, ok := req.State.OfferedDates[date]; !ok {
+			return fmt.Errorf("%w: date was not offered", ErrInvalidModelResponse)
+		}
+	}
+	if action.Action == application.ActionChooseService || (action.Action == application.ActionChangeService && strings.TrimSpace(action.Arguments.ServiceID) != "") {
 		serviceID := strings.TrimSpace(action.Arguments.ServiceID)
 		if serviceID == "" {
 			return fmt.Errorf("%w: %s requires service_id", ErrInvalidModelResponse, action.Action)
