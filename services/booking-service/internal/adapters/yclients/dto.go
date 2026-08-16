@@ -117,8 +117,10 @@ type countMeta struct {
 }
 
 type bookStaffDTO struct {
-	ID       stringID `json:"id"`
-	Bookable *bool    `json:"bookable"`
+	ID             stringID `json:"id"`
+	Name           string   `json:"name"`
+	Specialization string   `json:"specialization"`
+	Bookable       *bool    `json:"bookable"`
 }
 
 type bookStaffResponse struct {

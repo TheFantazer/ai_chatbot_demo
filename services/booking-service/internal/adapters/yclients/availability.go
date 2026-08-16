@@ -34,6 +34,13 @@ func (c *Client) SearchSlots(ctx context.Context, request bookingcontract.Search
 	if _, err := positiveID(serviceID); err != nil {
 		return nil, fmt.Errorf("%w: invalid service ID", ErrInvalidSlotSearch)
 	}
+	staffID, err := positiveID(strings.TrimSpace(request.StaffID))
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid staff ID", ErrInvalidSlotSearch)
+	}
+	if err := c.validateStaffForService(ctx, serviceID, staffID); err != nil {
+		return nil, err
+	}
 	location, err := time.LoadLocation(c.config.Timezone)
 	if err != nil {
 		return nil, fmt.Errorf("%w: invalid timezone", ErrInvalidConfiguration)
@@ -48,36 +55,20 @@ func (c *Client) SearchSlots(ctx context.Context, request bookingcontract.Search
 		return nil, fmt.Errorf("%w: date is outside booking horizon", ErrInvalidSlotSearch)
 	}
 
-	staff, err := c.listBookableStaff(ctx, serviceID)
+	from := selectedDate.UTC()
+	to := selectedDate.AddDate(0, 0, 1).UTC()
+	times, err := c.listBookTimes(ctx, serviceID, staffID, selectedDate)
 	if err != nil {
 		return nil, err
 	}
-	from := selectedDate.UTC()
-	to := selectedDate.AddDate(0, 0, 1).UTC()
-	referencesByStart := make(map[int64]slotReference)
-
-	for _, staffID := range staff {
-		times, err := c.listBookTimes(ctx, serviceID, staffID, selectedDate)
-		if err != nil {
-			return nil, err
+	references := make([]slotReference, 0, len(times))
+	for _, available := range times {
+		startsAt := time.Unix(int64(available.DateTime), 0).UTC()
+		if startsAt.Before(from) || !startsAt.Before(to) || available.SeanceLength <= 0 {
+			continue
 		}
-		for _, available := range times {
-			startsAt := time.Unix(int64(available.DateTime), 0).UTC()
-			if startsAt.Before(from) || !startsAt.Before(to) || available.SeanceLength <= 0 {
-				continue
-			}
-			key := startsAt.Unix()
-			if _, exists := referencesByStart[key]; exists {
-				continue
-			}
-			reference := slotReference{ServiceID: serviceID, StaffID: staffID, StartsAt: startsAt, SeanceLength: available.SeanceLength}
-			reference.ID = slotID(reference)
-			referencesByStart[key] = reference
-		}
-	}
-
-	references := make([]slotReference, 0, len(referencesByStart))
-	for _, reference := range referencesByStart {
+		reference := slotReference{ServiceID: serviceID, StaffID: staffID, StartsAt: startsAt, SeanceLength: available.SeanceLength}
+		reference.ID = slotID(reference)
 		references = append(references, reference)
 	}
 	sort.Slice(references, func(i int, j int) bool {
@@ -96,14 +87,18 @@ func (c *Client) SearchSlots(ctx context.Context, request bookingcontract.Search
 	}
 	for _, reference := range references {
 		c.slots[reference.ID] = reference
-		slots = append(slots, bookingcontract.Slot{ID: reference.ID, ServiceID: reference.ServiceID, StartsAt: reference.StartsAt})
+		slots = append(slots, bookingcontract.Slot{ID: reference.ID, ServiceID: reference.ServiceID, StaffID: strconv.FormatInt(reference.StaffID, 10), StartsAt: reference.StartsAt})
 	}
 	c.slotsMu.Unlock()
 
 	return slots, nil
 }
 
-func (c *Client) listBookableStaff(ctx context.Context, serviceID string) ([]int64, error) {
+func (c *Client) ListStaff(ctx context.Context, request bookingcontract.ListStaffRequest) ([]bookingcontract.Staff, error) {
+	serviceID := strings.TrimSpace(request.ServiceID)
+	if _, err := positiveID(serviceID); err != nil {
+		return nil, fmt.Errorf("%w: invalid service ID", ErrInvalidSlotSearch)
+	}
 	query := make(url.Values)
 	query.Add("service_ids[]", serviceID)
 	var response bookStaffResponse
@@ -114,19 +109,42 @@ func (c *Client) listBookableStaff(ctx context.Context, serviceID string) ([]int
 		return nil, ErrUnsuccessfulResponse
 	}
 
-	staff := make([]int64, 0, len(response.Data))
+	staff := make([]bookingcontract.Staff, 0, len(response.Data))
 	for _, item := range response.Data {
 		if item.Bookable != nil && !*item.Bookable {
 			continue
 		}
-		id, err := positiveID(string(item.ID))
-		if err != nil {
+		id := strings.TrimSpace(string(item.ID))
+		if _, err := positiveID(id); err != nil {
 			return nil, fmt.Errorf("decode YCLIENTS staff ID: %w", err)
 		}
-		staff = append(staff, id)
+		name := strings.TrimSpace(item.Name)
+		if name == "" {
+			return nil, errors.New("decode YCLIENTS staff: name is required")
+		}
+		staff = append(staff, bookingcontract.Staff{ID: id, Name: name, Specialization: strings.TrimSpace(item.Specialization)})
 	}
-	sort.Slice(staff, func(i int, j int) bool { return staff[i] < staff[j] })
+	sort.Slice(staff, func(i int, j int) bool {
+		if staff[i].Name == staff[j].Name {
+			return staff[i].ID < staff[j].ID
+		}
+		return staff[i].Name < staff[j].Name
+	})
 	return staff, nil
+}
+
+func (c *Client) validateStaffForService(ctx context.Context, serviceID string, staffID int64) error {
+	staff, err := c.ListStaff(ctx, bookingcontract.ListStaffRequest{ServiceID: serviceID})
+	if err != nil {
+		return err
+	}
+	expected := strconv.FormatInt(staffID, 10)
+	for _, item := range staff {
+		if item.ID == expected {
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: staff is unavailable for service", ErrInvalidSlotSearch)
 }
 
 func (c *Client) listBookTimes(ctx context.Context, serviceID string, staffID int64, date time.Time) ([]bookTimeDTO, error) {

@@ -3,7 +3,10 @@ package application
 import (
 	"errors"
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
+	"time"
 	"unicode"
 )
 
@@ -13,12 +16,14 @@ type EffectType string
 
 const (
 	EffectPrepareDates EffectType = "prepare_dates"
+	EffectLoadStaff    EffectType = "load_staff"
 	EffectSearchSlots  EffectType = "search_slots"
 )
 
 type Effect struct {
 	Type      EffectType
 	ServiceID string
+	StaffID   string
 	Date      string
 }
 
@@ -36,16 +41,28 @@ func AllowedActionsFor(state ConversationState) []ActionType {
 			actions = append([]ActionType{ActionChooseDate}, actions...)
 		}
 		return actions
-	case StepWaitingForTime:
+	case StepWaitingForStaff:
 		actions := []ActionType{ActionChangeService, ActionChangeDate, ActionAskQuestion, ActionCancelFlow, ActionClarify}
+		if len(state.OfferedStaff) > 0 {
+			actions = append([]ActionType{ActionChooseStaff}, actions...)
+		}
+		return actions
+	case StepWaitingForTime:
+		actions := []ActionType{ActionChangeService, ActionChangeDate, ActionChangeStaff, ActionAskQuestion, ActionCancelFlow, ActionClarify}
 		if len(state.OfferedSlots) > 0 {
 			actions = append([]ActionType{ActionChooseTime}, actions...)
 		}
 		return actions
 	case StepWaitingForContact:
-		return []ActionType{ActionProvideContact, ActionChangeService, ActionChangeDate, ActionChangeTime, ActionAskQuestion, ActionCancelFlow, ActionClarify}
+		return []ActionType{ActionProvideContact, ActionChangeService, ActionChangeDate, ActionChangeStaff, ActionChangeTime, ActionAskQuestion, ActionCancelFlow, ActionClarify}
 	case StepWaitingForConfirmation:
-		return []ActionType{ActionChangeService, ActionChangeDate, ActionChangeTime, ActionAskQuestion, ActionCancelFlow, ActionClarify}
+		return []ActionType{ActionChangeService, ActionChangeDate, ActionChangeStaff, ActionChangeTime, ActionAskQuestion, ActionCancelFlow, ActionClarify}
+	case StepBooked, StepCancelled:
+		actions := []ActionType{ActionStartNewBooking, ActionAskQuestion, ActionClarify}
+		if len(state.OfferedServices) > 0 {
+			actions = append([]ActionType{ActionChooseService}, actions...)
+		}
+		return actions
 	default:
 		return nil
 	}
@@ -71,10 +88,14 @@ func ValidateAction(state ConversationState, allowed []ActionType, action Action
 		if err := validateOfferedDate(state, action.Arguments.Date); err != nil {
 			return err
 		}
+	case ActionChooseStaff:
+		if err := validateOfferedStaff(state, action.Arguments.StaffID); err != nil {
+			return err
+		}
 	case ActionChooseTime:
 		slotID := strings.TrimSpace(action.Arguments.SlotID)
 		slot, ok := state.OfferedSlots[slotID]
-		if slotID == "" || !ok || slot.ServiceID != state.ServiceID || slot.Date != state.SelectedDate {
+		if slotID == "" || !ok || slot.ServiceID != state.ServiceID || slot.StaffID != state.StaffID || slot.Date != state.SelectedDate {
 			return fmt.Errorf("%w: selected slot was not offered for the current service", ErrActionNotAllowed)
 		}
 	case ActionProvideContact:
@@ -96,26 +117,151 @@ func ValidateAction(state ConversationState, allowed []ActionType, action Action
 				return err
 			}
 		}
+	case ActionChangeStaff:
+		if strings.TrimSpace(action.Arguments.StaffID) != "" {
+			if err := validateOfferedStaff(state, action.Arguments.StaffID); err != nil {
+				return err
+			}
+		}
 	}
 
 	return nil
 }
 
 func ValidateMessageBinding(state ConversationState, message string, action ActionEnvelope) error {
-	if state.Step != StepWaitingForService || action.Action != ActionChooseService {
-		return nil
-	}
-	selectedID := strings.TrimSpace(action.Arguments.ServiceID)
-	matches := make([]string, 0, 1)
-	for id, service := range state.OfferedServices {
-		if mentionsService(message, id, service.Name) {
-			matches = append(matches, id)
+	switch action.Action {
+	case ActionChooseService:
+		selectedID := strings.TrimSpace(action.Arguments.ServiceID)
+		matches := make([]string, 0, 1)
+		for id, service := range state.OfferedServices {
+			if mentionsOption(message, id, service.Name) {
+				matches = append(matches, id)
+			}
+		}
+		if len(matches) != 1 || matches[0] != selectedID {
+			return fmt.Errorf("%w: message does not identify exactly one offered service", ErrActionNotAllowed)
+		}
+	case ActionChooseStaff:
+		selectedID := strings.TrimSpace(action.Arguments.StaffID)
+		matches := make([]string, 0, 1)
+		for id, staff := range state.OfferedStaff {
+			if mentionsOption(message, id, staff.Name) {
+				matches = append(matches, id)
+			}
+		}
+		if len(matches) != 1 || matches[0] != selectedID {
+			return fmt.Errorf("%w: message does not identify exactly one offered staff member", ErrActionNotAllowed)
+		}
+	case ActionChooseDate:
+		date, ok := dateMentionedByUser(message, state.OfferedDates)
+		if !ok || date != strings.TrimSpace(action.Arguments.Date) {
+			return fmt.Errorf("%w: message does not identify the selected date", ErrActionNotAllowed)
+		}
+	case ActionChooseTime:
+		timeValue, ok := timeMentionedByUser(message)
+		slot, found := state.OfferedSlots[strings.TrimSpace(action.Arguments.SlotID)]
+		if !ok || !found || slot.StartsAt.Format("15:04") != timeValue {
+			return fmt.Errorf("%w: message does not identify the selected time", ErrActionNotAllowed)
 		}
 	}
-	if len(matches) != 1 || matches[0] != selectedID {
-		return fmt.Errorf("%w: message does not identify exactly one offered service", ErrActionNotAllowed)
-	}
 	return nil
+}
+
+var clockPattern = regexp.MustCompile(`(^|[^0-9])([01]?[0-9]|2[0-3])[:.]([0-5][0-9])([^0-9]|$)`)
+var numericDatePattern = regexp.MustCompile(`(^|[^0-9])([0-3]?[0-9])[./-]([01]?[0-9])(?:[./-]([0-9]{2}|[0-9]{4}))?([^0-9]|$)`)
+
+func timeMentionedByUser(message string) (string, bool) {
+	matches := clockPattern.FindAllStringSubmatch(message, -1)
+	values := make(map[string]struct{}, len(matches))
+	for _, match := range matches {
+		hour, hourErr := strconv.Atoi(match[2])
+		minute, minuteErr := strconv.Atoi(match[3])
+		if hourErr == nil && minuteErr == nil {
+			values[fmt.Sprintf("%02d:%02d", hour, minute)] = struct{}{}
+		}
+	}
+	if len(values) != 1 {
+		return "", false
+	}
+	for value := range values {
+		return value, true
+	}
+	return "", false
+}
+
+func dateMentionedByUser(message string, offered map[string]DateSnapshot) (string, bool) {
+	values := make(map[string]struct{})
+	firstDate, ok := firstOfferedDate(offered)
+	if !ok {
+		return "", false
+	}
+	words := normalizedWords(message)
+	if containsWord(words, "сегодня") {
+		values[firstDate.Format(time.DateOnly)] = struct{}{}
+	}
+	if containsWord(words, "завтра") {
+		values[firstDate.AddDate(0, 0, 1).Format(time.DateOnly)] = struct{}{}
+	}
+	if containsWord(words, "послезавтра") {
+		values[firstDate.AddDate(0, 0, 2).Format(time.DateOnly)] = struct{}{}
+	}
+	for _, match := range numericDatePattern.FindAllStringSubmatch(message, -1) {
+		day, dayErr := strconv.Atoi(match[2])
+		month, monthErr := strconv.Atoi(match[3])
+		year := firstDate.Year()
+		if match[4] != "" {
+			parsedYear, yearErr := strconv.Atoi(match[4])
+			if yearErr != nil {
+				continue
+			}
+			if parsedYear < 100 {
+				parsedYear += 2000
+			}
+			year = parsedYear
+		}
+		if dayErr == nil && monthErr == nil {
+			parsed := time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
+			if parsed.Day() == day && int(parsed.Month()) == month {
+				values[parsed.Format(time.DateOnly)] = struct{}{}
+			}
+		}
+	}
+	monthNames := []string{"января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"}
+	for monthIndex, monthName := range monthNames {
+		pattern := regexp.MustCompile(`(^|[^0-9])([0-3]?[0-9])\s+` + monthName + `([^а-яё]|$)`)
+		for _, match := range pattern.FindAllStringSubmatch(strings.ToLower(message), -1) {
+			day, err := strconv.Atoi(match[2])
+			if err == nil {
+				parsed := time.Date(firstDate.Year(), time.Month(monthIndex+1), day, 0, 0, 0, 0, time.UTC)
+				if parsed.Day() == day && int(parsed.Month()) == monthIndex+1 {
+					values[parsed.Format(time.DateOnly)] = struct{}{}
+				}
+			}
+		}
+	}
+	for value := range values {
+		if _, exists := offered[value]; !exists {
+			delete(values, value)
+		}
+	}
+	if len(values) != 1 {
+		return "", false
+	}
+	for value := range values {
+		return value, true
+	}
+	return "", false
+}
+
+func firstOfferedDate(offered map[string]DateSnapshot) (time.Time, bool) {
+	var first time.Time
+	for value := range offered {
+		parsed, err := time.Parse(time.DateOnly, value)
+		if err == nil && (first.IsZero() || parsed.Before(first)) {
+			first = parsed
+		}
+	}
+	return first, !first.IsZero()
 }
 
 func ValidCustomerName(value string) bool {
@@ -174,15 +320,15 @@ func ExtractCustomerPhone(value string) string {
 	return phone
 }
 
-func mentionsService(message string, serviceID string, serviceName string) bool {
+func mentionsOption(message string, optionID string, optionName string) bool {
 	normalizedMessage := normalizedWords(message)
 	if normalizedMessage == "" {
 		return false
 	}
-	if id := strings.ToLower(strings.TrimSpace(serviceID)); id != "" && containsWord(normalizedMessage, id) {
+	if id := strings.ToLower(strings.TrimSpace(optionID)); id != "" && containsWord(normalizedMessage, id) {
 		return true
 	}
-	normalizedName := normalizedWords(serviceName)
+	normalizedName := normalizedWords(optionName)
 	if normalizedName != "" && strings.Contains(normalizedMessage, normalizedName) {
 		return true
 	}
@@ -234,7 +380,10 @@ func Transition(state ConversationState, action ActionEnvelope) (ConversationSta
 		effects = append(effects, Effect{Type: EffectPrepareDates, ServiceID: next.ServiceID})
 	case ActionChooseDate:
 		selectDate(&next, strings.TrimSpace(action.Arguments.Date))
-		effects = append(effects, Effect{Type: EffectSearchSlots, ServiceID: next.ServiceID, Date: next.SelectedDate})
+		effects = append(effects, Effect{Type: EffectLoadStaff, ServiceID: next.ServiceID, Date: next.SelectedDate})
+	case ActionChooseStaff:
+		selectStaff(&next, strings.TrimSpace(action.Arguments.StaffID))
+		effects = append(effects, Effect{Type: EffectSearchSlots, ServiceID: next.ServiceID, StaffID: next.StaffID, Date: next.SelectedDate})
 	case ActionChooseTime:
 		next.SelectedSlot = strings.TrimSpace(action.Arguments.SlotID)
 		next.Step = StepWaitingForContact
@@ -275,7 +424,15 @@ func Transition(state ConversationState, action ActionEnvelope) (ConversationSta
 			resetSelectedDate(&next)
 		} else {
 			selectDate(&next, date)
-			effects = append(effects, Effect{Type: EffectSearchSlots, ServiceID: next.ServiceID, Date: next.SelectedDate})
+			effects = append(effects, Effect{Type: EffectLoadStaff, ServiceID: next.ServiceID, Date: next.SelectedDate})
+		}
+	case ActionChangeStaff:
+		staffID := strings.TrimSpace(action.Arguments.StaffID)
+		if staffID == "" {
+			resetSelectedStaff(&next)
+		} else {
+			selectStaff(&next, staffID)
+			effects = append(effects, Effect{Type: EffectSearchSlots, ServiceID: next.ServiceID, StaffID: next.StaffID, Date: next.SelectedDate})
 		}
 	case ActionChangeTime:
 		next.SelectedSlot = ""
@@ -285,10 +442,12 @@ func Transition(state ConversationState, action ActionEnvelope) (ConversationSta
 	case ActionCancelFlow:
 		next.Step = StepCancelled
 		next.Pending = RequirementNone
+	case ActionStartNewBooking:
+		resetNewBooking(&next)
 	case ActionAskQuestion, ActionClarify:
 	}
 
-	if next.Step == StepBooked || next.Step == StepBookingInProgress || next.Step == StepBookingUnknown {
+	if state.Step != StepBooked && state.Step != StepBookingInProgress && state.Step != StepBookingUnknown && (next.Step == StepBooked || next.Step == StepBookingInProgress || next.Step == StepBookingUnknown) {
 		return ConversationState{}, nil, fmt.Errorf("%w: model transition attempted a protected booking step", ErrActionNotAllowed)
 	}
 
@@ -317,6 +476,17 @@ func validateOfferedDate(state ConversationState, date string) error {
 	return nil
 }
 
+func validateOfferedStaff(state ConversationState, staffID string) error {
+	staffID = strings.TrimSpace(staffID)
+	if staffID == "" {
+		return fmt.Errorf("%w: staff ID is required", ErrActionNotAllowed)
+	}
+	if _, ok := state.OfferedStaff[staffID]; !ok {
+		return fmt.Errorf("%w: staff member was not offered", ErrActionNotAllowed)
+	}
+	return nil
+}
+
 func containsAction(actions []ActionType, action ActionType) bool {
 	for _, candidate := range actions {
 		if candidate == action {
@@ -330,6 +500,8 @@ func selectService(state *ConversationState, serviceID string) {
 	state.ServiceID = serviceID
 	state.OfferedDates = nil
 	state.SelectedDate = ""
+	state.OfferedStaff = nil
+	state.StaffID = ""
 	state.OfferedSlots = nil
 	state.SelectedSlot = ""
 	state.CustomerName = ""
@@ -341,6 +513,17 @@ func selectService(state *ConversationState, serviceID string) {
 
 func selectDate(state *ConversationState, date string) {
 	state.SelectedDate = date
+	state.OfferedStaff = nil
+	state.StaffID = ""
+	state.OfferedSlots = nil
+	state.SelectedSlot = ""
+	state.Booking = BookingAttempt{}
+	state.Step = StepWaitingForStaff
+	state.Pending = RequireStaff
+}
+
+func selectStaff(state *ConversationState, staffID string) {
+	state.StaffID = staffID
 	state.OfferedSlots = nil
 	state.SelectedSlot = ""
 	state.Booking = BookingAttempt{}
@@ -351,16 +534,44 @@ func selectDate(state *ConversationState, date string) {
 func resetSelectedDate(state *ConversationState) {
 	state.SelectedDate = ""
 	state.OfferedSlots = nil
+	state.OfferedStaff = nil
+	state.StaffID = ""
 	state.SelectedSlot = ""
 	state.Booking = BookingAttempt{}
 	state.Step = StepWaitingForDate
 	state.Pending = RequireDate
 }
 
+func resetSelectedStaff(state *ConversationState) {
+	state.StaffID = ""
+	state.OfferedSlots = nil
+	state.SelectedSlot = ""
+	state.Booking = BookingAttempt{}
+	state.Step = StepWaitingForStaff
+	state.Pending = RequireStaff
+}
+
 func resetSelectedService(state *ConversationState) {
 	state.ServiceID = ""
 	state.OfferedDates = nil
 	state.SelectedDate = ""
+	state.OfferedStaff = nil
+	state.StaffID = ""
+	state.OfferedSlots = nil
+	state.SelectedSlot = ""
+	state.CustomerName = ""
+	state.CustomerPhone = ""
+	state.Booking = BookingAttempt{}
+	state.Step = StepWaitingForService
+	state.Pending = RequireService
+}
+
+func resetNewBooking(state *ConversationState) {
+	state.ServiceID = ""
+	state.OfferedDates = nil
+	state.SelectedDate = ""
+	state.OfferedStaff = nil
+	state.StaffID = ""
 	state.OfferedSlots = nil
 	state.SelectedSlot = ""
 	state.CustomerName = ""

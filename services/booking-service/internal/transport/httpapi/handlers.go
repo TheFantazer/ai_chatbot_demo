@@ -20,6 +20,20 @@ func (s *server) listServices(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, services)
 }
 
+func (s *server) listStaff(w http.ResponseWriter, r *http.Request) {
+	var request bookingcontract.ListStaffRequest
+	if !decode(w, r, &request) {
+		return
+	}
+
+	staff, err := s.app.ListStaff(r.Context(), request)
+	if err != nil {
+		writeApplicationError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, staff)
+}
+
 func (s *server) searchSlots(w http.ResponseWriter, r *http.Request) {
 	var request bookingcontract.SearchSlotsRequest
 	if !decode(w, r, &request) {

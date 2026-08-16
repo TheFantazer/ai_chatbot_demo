@@ -44,7 +44,7 @@ func Load() (Config, error) {
 		YandexModel:       os.Getenv("YANDEX_MODEL"),
 		VKGroupID:         os.Getenv("VK_GROUP_ID"),
 		VKToken:           os.Getenv("VK_TOKEN"),
-		VKAPIVersion:      os.Getenv("VK_API_VERSION"),
+		VKAPIVersion:      value("VK_API_VERSION", "5.199"),
 	}, nil
 }
 

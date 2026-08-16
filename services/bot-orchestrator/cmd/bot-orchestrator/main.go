@@ -11,6 +11,7 @@ import (
 	_ "time/tzdata"
 
 	"ai-chatbot/services/bot-orchestrator/internal/adapters/bookingclient"
+	"ai-chatbot/services/bot-orchestrator/internal/adapters/vk"
 	"ai-chatbot/services/bot-orchestrator/internal/adapters/yandexgpt"
 	"ai-chatbot/services/bot-orchestrator/internal/application"
 	"ai-chatbot/services/bot-orchestrator/internal/config"
@@ -41,6 +42,7 @@ func main() {
 		os.Exit(1)
 	}
 	workflow := application.NewWorkflow(store, interpreter, bookingGateway, location)
+	vkTransport := vk.New(vk.Config{GroupID: cfg.VKGroupID, Token: cfg.VKToken, APIVersion: cfg.VKAPIVersion}, workflow, &http.Client{Timeout: 35 * time.Second}, logger)
 
 	ctx, stop := signal.NotifyContext(
 		context.Background(),
@@ -49,7 +51,16 @@ func main() {
 	)
 	defer stop()
 
-	if err := httpserver.Run(ctx, cfg.HTTPAddr, httpapi.New(workflow), logger); err != nil {
+	errorsFound := make(chan error, 2)
+	go func() {
+		errorsFound <- httpserver.Run(ctx, cfg.HTTPAddr, httpapi.New(workflow), logger)
+	}()
+	go func() {
+		errorsFound <- vkTransport.Run(ctx)
+	}()
+
+	if err := <-errorsFound; err != nil {
+		stop()
 		logger.Error("bot-orchestrator stopped", "error", err)
 		os.Exit(1)
 	}

@@ -15,6 +15,7 @@ var ErrInvalidRequest = errors.New("invalid booking request")
 
 type Provider interface {
 	ListServices(context.Context) ([]bookingcontract.Service, error)
+	ListStaff(context.Context, bookingcontract.ListStaffRequest) ([]bookingcontract.Staff, error)
 	SearchSlots(context.Context, bookingcontract.SearchSlotsRequest) ([]bookingcontract.Slot, error)
 	CreateBooking(context.Context, bookingcontract.CreateBookingRequest) (bookingcontract.BookingResult, error)
 }
@@ -40,9 +41,16 @@ func (s *Service) ListServices(ctx context.Context) ([]bookingcontract.Service, 
 	return s.provider.ListServices(ctx)
 }
 
-func (s *Service) SearchSlots(ctx context.Context, request bookingcontract.SearchSlotsRequest) ([]bookingcontract.Slot, error) {
+func (s *Service) ListStaff(ctx context.Context, request bookingcontract.ListStaffRequest) ([]bookingcontract.Staff, error) {
 	if strings.TrimSpace(request.ServiceID) == "" {
 		return nil, fmt.Errorf("%w: service ID is required", ErrInvalidRequest)
+	}
+	return s.provider.ListStaff(ctx, request)
+}
+
+func (s *Service) SearchSlots(ctx context.Context, request bookingcontract.SearchSlotsRequest) ([]bookingcontract.Slot, error) {
+	if strings.TrimSpace(request.ServiceID) == "" || strings.TrimSpace(request.StaffID) == "" {
+		return nil, fmt.Errorf("%w: service ID and staff ID are required", ErrInvalidRequest)
 	}
 	if _, err := time.Parse(time.DateOnly, request.Date); err != nil {
 		return nil, fmt.Errorf("%w: date must use YYYY-MM-DD", ErrInvalidRequest)

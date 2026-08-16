@@ -12,6 +12,7 @@ type Interpreter interface {
 
 type BookingGateway interface {
 	ListServices(context.Context) ([]bookingcontract.Service, error)
+	ListStaff(context.Context, bookingcontract.ListStaffRequest) ([]bookingcontract.Staff, error)
 	SearchSlots(context.Context, bookingcontract.SearchSlotsRequest) ([]bookingcontract.Slot, error)
 	CreateBooking(context.Context, bookingcontract.CreateBookingRequest) (bookingcontract.BookingResult, error)
 }

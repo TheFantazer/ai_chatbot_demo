@@ -48,6 +48,12 @@ func cloneState(state ConversationState) ConversationState {
 			copyOfState.OfferedDates[date] = snapshot
 		}
 	}
+	if state.OfferedStaff != nil {
+		copyOfState.OfferedStaff = make(map[string]StaffSnapshot, len(state.OfferedStaff))
+		for id, staff := range state.OfferedStaff {
+			copyOfState.OfferedStaff[id] = staff
+		}
+	}
 	if state.OfferedSlots != nil {
 		copyOfState.OfferedSlots = make(map[string]SlotSnapshot, len(state.OfferedSlots))
 		for id, slot := range state.OfferedSlots {

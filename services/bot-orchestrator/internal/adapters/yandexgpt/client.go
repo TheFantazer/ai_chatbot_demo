@@ -162,6 +162,15 @@ func validateActionEnvelope(req application.InterpretationRequest, action applic
 			return fmt.Errorf("%w: service_id was not offered", ErrInvalidModelResponse)
 		}
 	}
+	if action.Action == application.ActionChooseStaff || (action.Action == application.ActionChangeStaff && strings.TrimSpace(action.Arguments.StaffID) != "") {
+		staffID := strings.TrimSpace(action.Arguments.StaffID)
+		if staffID == "" {
+			return fmt.Errorf("%w: %s requires staff_id", ErrInvalidModelResponse, action.Action)
+		}
+		if _, ok := req.State.OfferedStaff[staffID]; !ok {
+			return fmt.Errorf("%w: staff_id was not offered", ErrInvalidModelResponse)
+		}
+	}
 	if action.Action == application.ActionProvideContact {
 		switch req.State.Pending {
 		case application.RequireName:

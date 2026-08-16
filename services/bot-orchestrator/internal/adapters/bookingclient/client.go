@@ -48,6 +48,14 @@ func (c *Client) ListServices(ctx context.Context) ([]bookingcontract.Service, e
 	return services, nil
 }
 
+func (c *Client) ListStaff(ctx context.Context, request bookingcontract.ListStaffRequest) ([]bookingcontract.Staff, error) {
+	var staff []bookingcontract.Staff
+	if err := c.do(ctx, http.MethodPost, "/v1/staff/search", request, &staff); err != nil {
+		return nil, err
+	}
+	return staff, nil
+}
+
 func (c *Client) SearchSlots(ctx context.Context, request bookingcontract.SearchSlotsRequest) ([]bookingcontract.Slot, error) {
 	var slots []bookingcontract.Slot
 	if err := c.do(ctx, http.MethodPost, "/v1/slots/search", request, &slots); err != nil {

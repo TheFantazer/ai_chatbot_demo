@@ -7,14 +7,26 @@ type Service struct {
 	Name string `json:"name"`
 }
 
+type Staff struct {
+	ID             string `json:"id"`
+	Name           string `json:"name"`
+	Specialization string `json:"specialization,omitempty"`
+}
+
+type ListStaffRequest struct {
+	ServiceID string `json:"service_id"`
+}
+
 type SearchSlotsRequest struct {
 	ServiceID string `json:"service_id"`
+	StaffID   string `json:"staff_id"`
 	Date      string `json:"date"`
 }
 
 type Slot struct {
 	ID        string    `json:"id"`
 	ServiceID string    `json:"service_id"`
+	StaffID   string    `json:"staff_id"`
 	StartsAt  time.Time `json:"starts_at"`
 }
 

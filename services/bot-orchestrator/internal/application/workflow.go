@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -56,7 +57,7 @@ func (w *Workflow) HandleMessage(ctx context.Context, message InboundMessage) (O
 	if state.Step == StepWaitingForConfirmation && isExplicitConfirmation(message.Text) {
 		return w.createBooking(ctx, state)
 	}
-	if state.Step == StepBookingInProgress || state.Step == StepBooked || state.Step == StepBookingUnknown || state.Step == StepCancelled {
+	if state.Step == StepBookingInProgress || state.Step == StepBookingUnknown {
 		return RenderReply(state)
 	}
 
@@ -70,14 +71,14 @@ func (w *Workflow) HandleMessage(ctx context.Context, message InboundMessage) (O
 	if action.Action == "" {
 		action, err = w.interpreter.Interpret(ctx, InterpretationRequest{Message: message.Text, State: cloneState(state), AllowedActions: allowed})
 		if err != nil {
-			return RenderReply(state)
+			return RenderFallbackReply(state)
 		}
 	}
 	if err := ValidateAction(state, allowed, action); err != nil {
-		return RenderReply(state)
+		return RenderFallbackReply(state)
 	}
 	if err := ValidateMessageBinding(state, message.Text, action); err != nil {
-		return RenderReply(state)
+		return RenderFallbackReply(state)
 	}
 
 	next, effects, err := Transition(state, action)
@@ -94,7 +95,17 @@ func (w *Workflow) HandleMessage(ctx context.Context, message InboundMessage) (O
 	if err := w.store.Save(ctx, next); err != nil {
 		return OutboundMessage{}, fmt.Errorf("save conversation: %w", err)
 	}
-	return RenderReply(next)
+	return RenderActionReply(next, action)
+}
+
+func RenderFallbackReply(state ConversationState) (OutboundMessage, error) {
+	if state.Step == StepBooked {
+		return OutboundMessage{Kind: OutboundText, Text: "Эта запись уже оформлена. Хотите записаться ещё раз? Напишите желаемую услугу — начнём новую запись."}, nil
+	}
+	if state.Step == StepCancelled {
+		return OutboundMessage{Kind: OutboundText, Text: "Текущая запись отменена. Если хотите начать новую, напишите, на какую услугу вас записать."}, nil
+	}
+	return RenderReply(state)
 }
 
 func (w *Workflow) initializeState(ctx context.Context, conversationID string) (ConversationState, error) {
@@ -128,18 +139,32 @@ func (w *Workflow) applyEffects(ctx context.Context, state *ConversationState, e
 				date := today.AddDate(0, 0, offset).Format(time.DateOnly)
 				state.OfferedDates[date] = DateSnapshot{Date: date}
 			}
+		case EffectLoadStaff:
+			staff, err := w.booking.ListStaff(ctx, bookingcontract.ListStaffRequest{ServiceID: effect.ServiceID})
+			if err != nil {
+				return fmt.Errorf("list staff: %w", err)
+			}
+			state.OfferedStaff = make(map[string]StaffSnapshot, len(staff))
+			for _, item := range staff {
+				id := strings.TrimSpace(item.ID)
+				name := strings.TrimSpace(item.Name)
+				if id == "" || name == "" {
+					return errors.New("list staff: invalid staff member")
+				}
+				state.OfferedStaff[id] = StaffSnapshot{ID: id, Name: name, Specialization: strings.TrimSpace(item.Specialization)}
+			}
 		case EffectSearchSlots:
-			slots, err := w.booking.SearchSlots(ctx, bookingcontract.SearchSlotsRequest{ServiceID: effect.ServiceID, Date: effect.Date})
+			slots, err := w.booking.SearchSlots(ctx, bookingcontract.SearchSlotsRequest{ServiceID: effect.ServiceID, StaffID: effect.StaffID, Date: effect.Date})
 			if err != nil {
 				return fmt.Errorf("search slots: %w", err)
 			}
 			state.OfferedSlots = make(map[string]SlotSnapshot, len(slots))
 			for _, slot := range slots {
 				id := strings.TrimSpace(slot.ID)
-				if id == "" || slot.ServiceID != effect.ServiceID || slot.StartsAt.IsZero() {
+				if id == "" || slot.ServiceID != effect.ServiceID || slot.StaffID != effect.StaffID || slot.StartsAt.IsZero() {
 					return fmt.Errorf("search slots: invalid slot")
 				}
-				state.OfferedSlots[id] = SlotSnapshot{ID: id, ServiceID: slot.ServiceID, Date: effect.Date, StartsAt: slot.StartsAt.In(w.location)}
+				state.OfferedSlots[id] = SlotSnapshot{ID: id, ServiceID: slot.ServiceID, StaffID: slot.StaffID, Date: effect.Date, StartsAt: slot.StartsAt.In(w.location)}
 			}
 		default:
 			return fmt.Errorf("unknown workflow effect %q", effect.Type)
@@ -192,56 +217,127 @@ func RenderReply(state ConversationState) (OutboundMessage, error) {
 	case StepWaitingForService:
 		return OutboundMessage{Kind: OutboundText, Text: renderServices(state.OfferedServices)}, nil
 	case StepWaitingForDate:
-		return OutboundMessage{Kind: OutboundText, Text: renderDates(state.OfferedDates)}, nil
+		service := state.OfferedServices[state.ServiceID]
+		return OutboundMessage{Kind: OutboundText, Text: fmt.Sprintf("Отлично, записываемся на «%s». На какой день вам было бы удобно?", service.Name)}, nil
+	case StepWaitingForStaff:
+		return OutboundMessage{Kind: OutboundText, Text: renderStaff(state)}, nil
 	case StepWaitingForTime:
-		return OutboundMessage{Kind: OutboundText, Text: renderSlots(state.OfferedSlots)}, nil
+		return OutboundMessage{Kind: OutboundText, Text: renderSlots(state)}, nil
 	case StepWaitingForContact:
 		if state.Pending == RequireName {
-			return OutboundMessage{Kind: OutboundText, Text: "Как вас зовут?"}, nil
+			slot := state.OfferedSlots[state.SelectedSlot]
+			staff := state.OfferedStaff[state.StaffID]
+			return OutboundMessage{Kind: OutboundText, Text: fmt.Sprintf("Отлично, %s в %s свободно. Выбранный специалист — %s. Как я могу к вам обращаться?", formatHumanDate(slot.StartsAt), slot.StartsAt.Format("15:04"), staff.Name)}, nil
 		}
-		return OutboundMessage{Kind: OutboundText, Text: "Укажите номер телефона."}, nil
+		return OutboundMessage{Kind: OutboundText, Text: fmt.Sprintf("Приятно познакомиться, %s! Оставьте, пожалуйста, номер телефона для записи.", state.CustomerName)}, nil
 	case StepWaitingForConfirmation:
 		if state.Booking.Outcome == bookingcontract.BookingRejected {
 			return OutboundMessage{Kind: OutboundBookingFailed, Text: "Запись не была создана. Проверьте данные и отправьте «ПОДТВЕРЖДАЮ», чтобы попробовать снова."}, nil
 		}
 		service := state.OfferedServices[state.ServiceID]
+		staff := state.OfferedStaff[state.StaffID]
 		slot := state.OfferedSlots[state.SelectedSlot]
-		text := fmt.Sprintf("Проверьте данные: %s, %s, %s, %s. Для создания записи отправьте «ПОДТВЕРЖДАЮ».", service.Name, slot.StartsAt.Format("02.01.2006 15:04"), state.CustomerName, state.CustomerPhone)
+		text := fmt.Sprintf("Почти готово! Проверьте запись:\n• Услуга: %s\n• Специалист: %s\n• Когда: %s в %s\n• Имя: %s\n• Телефон: %s\n\nЕсли всё верно, отправьте «ПОДТВЕРЖДАЮ» — только после этого я создам запись.", service.Name, staff.Name, formatHumanDate(slot.StartsAt), slot.StartsAt.Format("15:04"), state.CustomerName, state.CustomerPhone)
 		return OutboundMessage{Kind: OutboundText, Text: text}, nil
 	case StepBookingInProgress:
 		return OutboundMessage{Kind: OutboundText, Text: "Запись создаётся. Дождитесь результата."}, nil
 	case StepBooked:
-		return OutboundMessage{Kind: OutboundBookingCreated, Text: fmt.Sprintf("Запись создана. Номер записи: %s.", state.Booking.ExternalID)}, nil
+		return OutboundMessage{Kind: OutboundBookingCreated, Text: fmt.Sprintf("Готово! Запись подтверждена в YCLIENTS. Номер записи: %s. Если захотите записаться ещё раз, просто напишите мне.", state.Booking.ExternalID)}, nil
 	case StepBookingUnknown:
 		return OutboundMessage{Kind: OutboundBookingFailed, Text: "Не удалось однозначно определить результат создания записи. Повторно создавать запись автоматически не будем."}, nil
 	case StepCancelled:
-		return OutboundMessage{Kind: OutboundText, Text: "Запись отменена."}, nil
+		return OutboundMessage{Kind: OutboundText, Text: "Хорошо, текущую запись отменили. Если захотите начать заново, просто напишите, что хотите записаться."}, nil
 	default:
 		return OutboundMessage{}, fmt.Errorf("%w: cannot render step %q", ErrInvalidState, state.Step)
 	}
+}
+
+func RenderActionReply(state ConversationState, action ActionEnvelope) (OutboundMessage, error) {
+	if action.Action == ActionClarify {
+		return renderClarification(state, action.Arguments.Topic)
+	}
+	if action.Action == ActionAskQuestion {
+		if state.Step == StepBooked {
+			return OutboundMessage{Kind: OutboundText, Text: "Пожалуйста! Если хотите записаться ещё раз, просто скажите — начнём новую запись."}, nil
+		}
+		return RenderReply(state)
+	}
+	return RenderReply(state)
+}
+
+func renderClarification(state ConversationState, topic string) (OutboundMessage, error) {
+	switch state.Step {
+	case StepWaitingForService:
+		if topic == "unsupported_service" {
+			return OutboundMessage{Kind: OutboundText, Text: "Похоже, такой услуги у нас сейчас нет. Но я могу помочь с одной из доступных:\n" + renderServiceNames(state.OfferedServices)}, nil
+		}
+		return OutboundMessage{Kind: OutboundText, Text: renderServices(state.OfferedServices)}, nil
+	case StepWaitingForDate:
+		if topic == "out_of_range_date" {
+			return OutboundMessage{Kind: OutboundText, Text: "На такую далёкую дату запись пока недоступна — расписание открыто на ближайшие две недели. Какой день в этом диапазоне вам подойдёт?"}, nil
+		}
+	case StepWaitingForStaff:
+		if topic == "unsupported_staff" {
+			return OutboundMessage{Kind: OutboundText, Text: "Этого специалиста сейчас нет среди доступных для выбранной услуги. Давайте выберем из списка:\n" + renderStaffNames(state.OfferedStaff)}, nil
+		}
+	case StepWaitingForTime:
+		if topic == "unavailable_time" {
+			return OutboundMessage{Kind: OutboundText, Text: "На это время специалист уже занят. Вот актуальные свободные варианты:\n" + renderTimeValues(state.OfferedSlots)}, nil
+		}
+	case StepBooked:
+		return OutboundMessage{Kind: OutboundText, Text: "Если хотите сделать ещё одну запись, просто напишите «хочу записаться» или сразу назовите услугу."}, nil
+	}
+	return RenderReply(state)
 }
 
 func renderServices(services map[string]ServiceSnapshot) string {
 	if len(services) == 0 {
 		return "Сейчас нет доступных услуг."
 	}
-	ids := make([]string, 0, len(services))
-	for id := range services {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-	lines := make([]string, 0, len(ids)+1)
-	lines = append(lines, "Выберите услугу:")
-	for _, id := range ids {
-		lines = append(lines, fmt.Sprintf("%s — %s", id, services[id].Name))
-	}
-	return strings.Join(lines, "\n")
+	return "Конечно, помогу записаться! Какую услугу вы хотите? Сейчас доступны:\n" + renderServiceNames(services)
 }
 
-func renderSlots(slots map[string]SlotSnapshot) string {
-	if len(slots) == 0 {
-		return "На выбранную дату свободного времени нет. Выберите другую дату."
+func renderServiceNames(services map[string]ServiceSnapshot) string {
+	names := make([]string, 0, len(services))
+	for _, service := range services {
+		names = append(names, service.Name)
 	}
+	sort.Strings(names)
+	for index := range names {
+		names[index] = "• " + names[index]
+	}
+	return strings.Join(names, "\n")
+}
+
+func renderStaff(state ConversationState) string {
+	if len(state.OfferedStaff) == 0 {
+		return "На выбранный день подходящих специалистов не нашлось. Давайте попробуем другую дату?"
+	}
+	return fmt.Sprintf("На %s доступны эти специалисты:\n%s\n\nК кому вас записать?", formatDateOnly(state.SelectedDate), renderStaffNames(state.OfferedStaff))
+}
+
+func renderStaffNames(staff map[string]StaffSnapshot) string {
+	values := make([]string, 0, len(staff))
+	for _, item := range staff {
+		value := item.Name
+		if item.Specialization != "" {
+			value += " — " + item.Specialization
+		}
+		values = append(values, "• "+value)
+	}
+	sort.Strings(values)
+	return strings.Join(values, "\n")
+}
+
+func renderSlots(state ConversationState) string {
+	staff := state.OfferedStaff[state.StaffID]
+	if len(state.OfferedSlots) == 0 {
+		return fmt.Sprintf("На %s у выбранного специалиста свободного времени уже нет. Выберем другого специалиста или другую дату?", formatDateOnly(state.SelectedDate))
+	}
+	return fmt.Sprintf("%s — свободное время на %s:\n%s\n\nКакое время вам подходит?", staff.Name, formatDateOnly(state.SelectedDate), renderTimeValues(state.OfferedSlots))
+}
+
+func renderTimeValues(slots map[string]SlotSnapshot) string {
 	values := make([]SlotSnapshot, 0, len(slots))
 	for _, slot := range slots {
 		values = append(values, slot)
@@ -252,24 +348,33 @@ func renderSlots(slots map[string]SlotSnapshot) string {
 		}
 		return values[i].StartsAt.Before(values[j].StartsAt)
 	})
-	lines := make([]string, 0, len(values)+1)
-	lines = append(lines, "Выберите время:")
+	times := make([]string, 0, len(values))
 	for _, slot := range values {
-		lines = append(lines, fmt.Sprintf("%s — %s", slot.ID, slot.StartsAt.Format("02.01.2006 15:04")))
+		times = append(times, slot.StartsAt.Format("15:04"))
 	}
-	return strings.Join(lines, "\n")
+	return strings.Join(times, ", ")
 }
 
-func renderDates(dates map[string]DateSnapshot) string {
-	if len(dates) == 0 {
-		return "Сейчас нет доступных дат."
+func formatDateOnly(value string) string {
+	parsed, err := time.Parse(time.DateOnly, value)
+	if err != nil {
+		return value
 	}
-	values := make([]string, 0, len(dates))
-	for date := range dates {
-		values = append(values, date)
+	months := [...]string{"января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"}
+	return fmt.Sprintf("%d %s", parsed.Day(), months[parsed.Month()-1])
+}
+
+func formatHumanDate(value time.Time) string {
+	today := beginningOfBusinessDay(time.Now().In(value.Location()))
+	selected := beginningOfBusinessDay(value)
+	switch selected.Sub(today) / (24 * time.Hour) {
+	case 0:
+		return "сегодня"
+	case 1:
+		return "завтра"
+	default:
+		return value.Format("02.01.2006")
 	}
-	sort.Strings(values)
-	return "Выберите дату от " + values[0] + " до " + values[len(values)-1] + "."
 }
 
 func beginningOfBusinessDay(value time.Time) time.Time {
