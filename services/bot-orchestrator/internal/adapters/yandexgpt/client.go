@@ -162,6 +162,20 @@ func validateActionEnvelope(req application.InterpretationRequest, action applic
 			return fmt.Errorf("%w: service_id was not offered", ErrInvalidModelResponse)
 		}
 	}
+	if action.Action == application.ActionProvideContact {
+		switch req.State.Pending {
+		case application.RequireName:
+			if !application.ValidCustomerName(action.Arguments.Name) || strings.TrimSpace(action.Arguments.Phone) != "" {
+				return fmt.Errorf("%w: provide_contact requires a valid name only", ErrInvalidModelResponse)
+			}
+		case application.RequirePhone:
+			if !application.ValidCustomerPhone(action.Arguments.Phone) || strings.TrimSpace(action.Arguments.Name) != "" {
+				return fmt.Errorf("%w: provide_contact requires a valid phone only", ErrInvalidModelResponse)
+			}
+		default:
+			return fmt.Errorf("%w: contact is not pending", ErrInvalidModelResponse)
+		}
+	}
 
 	return nil
 }

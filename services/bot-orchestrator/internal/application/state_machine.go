@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode"
 )
 
 var ErrActionNotAllowed = errors.New("action is not allowed")
@@ -77,10 +78,10 @@ func ValidateAction(state ConversationState, allowed []ActionType, action Action
 			return fmt.Errorf("%w: selected slot was not offered for the current service", ErrActionNotAllowed)
 		}
 	case ActionProvideContact:
-		if state.Pending == RequireName && strings.TrimSpace(action.Arguments.Name) == "" {
+		if state.Pending == RequireName && (!ValidCustomerName(action.Arguments.Name) || strings.TrimSpace(action.Arguments.Phone) != "") {
 			return fmt.Errorf("%w: customer name is required", ErrActionNotAllowed)
 		}
-		if state.Pending == RequirePhone && strings.TrimSpace(action.Arguments.Phone) == "" {
+		if state.Pending == RequirePhone && (!ValidCustomerPhone(action.Arguments.Phone) || strings.TrimSpace(action.Arguments.Name) != "") {
 			return fmt.Errorf("%w: customer phone is required", ErrActionNotAllowed)
 		}
 	case ActionChangeService:
@@ -98,6 +99,123 @@ func ValidateAction(state ConversationState, allowed []ActionType, action Action
 	}
 
 	return nil
+}
+
+func ValidateMessageBinding(state ConversationState, message string, action ActionEnvelope) error {
+	if state.Step != StepWaitingForService || action.Action != ActionChooseService {
+		return nil
+	}
+	selectedID := strings.TrimSpace(action.Arguments.ServiceID)
+	matches := make([]string, 0, 1)
+	for id, service := range state.OfferedServices {
+		if mentionsService(message, id, service.Name) {
+			matches = append(matches, id)
+		}
+	}
+	if len(matches) != 1 || matches[0] != selectedID {
+		return fmt.Errorf("%w: message does not identify exactly one offered service", ErrActionNotAllowed)
+	}
+	return nil
+}
+
+func ValidCustomerName(value string) bool {
+	value = strings.TrimSpace(value)
+	if len([]rune(value)) < 2 || isMissingValue(value) {
+		return false
+	}
+	for _, current := range value {
+		if unicode.IsLetter(current) {
+			return true
+		}
+	}
+	return false
+}
+
+func ValidCustomerPhone(value string) bool {
+	value = strings.TrimSpace(value)
+	if isMissingValue(value) {
+		return false
+	}
+	digits := 0
+	for _, current := range value {
+		if unicode.IsDigit(current) {
+			digits++
+			continue
+		}
+		if current != '+' && current != ' ' && current != '-' && current != '(' && current != ')' {
+			return false
+		}
+	}
+	return digits >= 10 && digits <= 15
+}
+
+func ExtractCustomerPhone(value string) string {
+	value = strings.TrimSpace(value)
+	var digits strings.Builder
+	plus := false
+	firstDigitFound := false
+	for _, current := range value {
+		if unicode.IsDigit(current) {
+			digits.WriteRune(current)
+			firstDigitFound = true
+			continue
+		}
+		if current == '+' && !firstDigitFound {
+			plus = true
+		}
+	}
+	phone := digits.String()
+	if plus {
+		phone = "+" + phone
+	}
+	if !ValidCustomerPhone(phone) {
+		return ""
+	}
+	return phone
+}
+
+func mentionsService(message string, serviceID string, serviceName string) bool {
+	normalizedMessage := normalizedWords(message)
+	if normalizedMessage == "" {
+		return false
+	}
+	if id := strings.ToLower(strings.TrimSpace(serviceID)); id != "" && containsWord(normalizedMessage, id) {
+		return true
+	}
+	normalizedName := normalizedWords(serviceName)
+	if normalizedName != "" && strings.Contains(normalizedMessage, normalizedName) {
+		return true
+	}
+	for _, word := range strings.Fields(normalizedName) {
+		if len([]rune(word)) >= 4 && containsWord(normalizedMessage, word) {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizedWords(value string) string {
+	return strings.Join(strings.FieldsFunc(strings.ToLower(value), func(current rune) bool {
+		return !unicode.IsLetter(current) && !unicode.IsDigit(current)
+	}), " ")
+}
+
+func containsWord(value string, expected string) bool {
+	for _, word := range strings.Fields(value) {
+		if word == expected {
+			return true
+		}
+	}
+	return false
+}
+
+func isMissingValue(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "null", "nil", "none", "unknown", "неизвестно", "неизвестный", "нет":
+		return true
+	default:
+		return false
+	}
 }
 
 func Transition(state ConversationState, action ActionEnvelope) (ConversationState, []Effect, error) {

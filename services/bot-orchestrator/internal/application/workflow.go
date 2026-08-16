@@ -38,7 +38,6 @@ func (w *Workflow) HandleMessage(ctx context.Context, message InboundMessage) (O
 	lock.Lock()
 	defer lock.Unlock()
 
-	//проверяем новый ли диалог
 	state, exists, err := w.store.Load(ctx, conversationID)
 
 	if err != nil {
@@ -62,12 +61,23 @@ func (w *Workflow) HandleMessage(ctx context.Context, message InboundMessage) (O
 	}
 
 	allowed := AllowedActionsFor(state)
-	action, err := w.interpreter.Interpret(ctx, InterpretationRequest{Message: message.Text, State: cloneState(state), AllowedActions: allowed})
-	if err != nil {
-		return OutboundMessage{}, fmt.Errorf("interpret message: %w", err)
+	action := ActionEnvelope{}
+	if state.Step == StepWaitingForContact && state.Pending == RequirePhone {
+		if phone := ExtractCustomerPhone(message.Text); phone != "" {
+			action = ActionEnvelope{Action: ActionProvideContact, Arguments: ActionArguments{Phone: phone}, StateRevision: state.Revision}
+		}
+	}
+	if action.Action == "" {
+		action, err = w.interpreter.Interpret(ctx, InterpretationRequest{Message: message.Text, State: cloneState(state), AllowedActions: allowed})
+		if err != nil {
+			return RenderReply(state)
+		}
 	}
 	if err := ValidateAction(state, allowed, action); err != nil {
-		return OutboundMessage{}, err
+		return RenderReply(state)
+	}
+	if err := ValidateMessageBinding(state, message.Text, action); err != nil {
+		return RenderReply(state)
 	}
 
 	next, effects, err := Transition(state, action)
