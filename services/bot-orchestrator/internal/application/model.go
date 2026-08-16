@@ -13,6 +13,7 @@ type Step string
 
 const (
 	StepWaitingForService      Step = "waiting_for_service"
+	StepWaitingForDate         Step = "waiting_for_date"
 	StepWaitingForTime         Step = "waiting_for_time"
 	StepWaitingForContact      Step = "waiting_for_contact"
 	StepWaitingForConfirmation Step = "waiting_for_confirmation"
@@ -27,6 +28,7 @@ type Requirement string
 const (
 	RequirementNone Requirement = ""
 	RequireService  Requirement = "require_service"
+	RequireDate     Requirement = "require_date"
 	RequireTime     Requirement = "require_time"
 	RequireName     Requirement = "require_name"
 	RequirePhone    Requirement = "require_phone"
@@ -35,7 +37,12 @@ const (
 type SlotSnapshot struct {
 	ID        string
 	ServiceID string
+	Date      string
 	StartsAt  time.Time
+}
+
+type DateSnapshot struct {
+	Date string
 }
 
 type ServiceSnapshot struct {
@@ -59,6 +66,8 @@ type ConversationState struct {
 
 	ServiceID       string
 	OfferedServices map[string]ServiceSnapshot
+	OfferedDates    map[string]DateSnapshot
+	SelectedDate    string
 	OfferedSlots    map[string]SlotSnapshot
 	SelectedSlot    string
 	CustomerName    string
@@ -72,9 +81,11 @@ type ActionType string
 
 const (
 	ActionChooseService  ActionType = "choose_service"
+	ActionChooseDate     ActionType = "choose_date"
 	ActionChooseTime     ActionType = "choose_time"
 	ActionProvideContact ActionType = "provide_contact"
 	ActionChangeService  ActionType = "change_service"
+	ActionChangeDate     ActionType = "change_date"
 	ActionChangeTime     ActionType = "change_time"
 	ActionAskQuestion    ActionType = "ask_question"
 	ActionCancelFlow     ActionType = "cancel_flow"
@@ -89,6 +100,7 @@ type ActionEnvelope struct {
 
 type ActionArguments struct {
 	ServiceID string `json:"service_id,omitempty"`
+	Date      string `json:"date,omitempty"`
 	SlotID    string `json:"slot_id,omitempty"`
 	Name      string `json:"name,omitempty"`
 	Phone     string `json:"phone,omitempty"`
@@ -135,6 +147,9 @@ func ValidateState(state ConversationState) error {
 	if err := validateServiceSnapshots(state); err != nil {
 		return err
 	}
+	if err := validateDateSnapshots(state); err != nil {
+		return err
+	}
 	if err := validateSlotSnapshots(state); err != nil {
 		return err
 	}
@@ -147,11 +162,24 @@ func ValidateState(state ConversationState) error {
 		if !isEmptyBookingAttempt(state.Booking) {
 			return invalidState("waiting_for_service cannot contain a booking attempt")
 		}
+	case StepWaitingForDate:
+		if state.Pending != RequireDate {
+			return invalidState("waiting_for_date requires require_date")
+		}
+		if err := validateSelectedService(state); err != nil {
+			return err
+		}
+		if !isEmptyBookingAttempt(state.Booking) {
+			return invalidState("waiting_for_date cannot contain a booking attempt")
+		}
 	case StepWaitingForTime:
 		if state.Pending != RequireTime {
 			return invalidState("waiting_for_time requires require_time")
 		}
 		if err := validateSelectedService(state); err != nil {
+			return err
+		}
+		if err := validateSelectedDate(state); err != nil {
 			return err
 		}
 		if !isEmptyBookingAttempt(state.Booking) {
@@ -240,10 +268,25 @@ func validateServiceSnapshots(state ConversationState) error {
 	return nil
 }
 
+func validateDateSnapshots(state ConversationState) error {
+	for date, snapshot := range state.OfferedDates {
+		if date == "" || snapshot.Date != date {
+			return invalidState("invalid offered date %q", date)
+		}
+		if _, err := time.Parse(time.DateOnly, date); err != nil {
+			return invalidState("invalid offered date %q", date)
+		}
+	}
+	return nil
+}
+
 func validateSlotSnapshots(state ConversationState) error {
 	for id, slot := range state.OfferedSlots {
-		if strings.TrimSpace(id) == "" || strings.TrimSpace(slot.ID) == "" || id != slot.ID || strings.TrimSpace(slot.ServiceID) == "" || slot.StartsAt.IsZero() {
+		if strings.TrimSpace(id) == "" || strings.TrimSpace(slot.ID) == "" || id != slot.ID || strings.TrimSpace(slot.ServiceID) == "" || slot.Date == "" || slot.StartsAt.IsZero() {
 			return invalidState("invalid offered slot %q", id)
+		}
+		if _, err := time.Parse(time.DateOnly, slot.Date); err != nil {
+			return invalidState("slot %q has invalid date", id)
 		}
 		if len(state.OfferedServices) > 0 {
 			if _, ok := state.OfferedServices[slot.ServiceID]; !ok {
@@ -265,8 +308,22 @@ func validateSelectedService(state ConversationState) error {
 	return nil
 }
 
+func validateSelectedDate(state ConversationState) error {
+	date := strings.TrimSpace(state.SelectedDate)
+	if date == "" {
+		return invalidState("selected date is required")
+	}
+	if _, ok := state.OfferedDates[date]; !ok {
+		return invalidState("selected date was not offered")
+	}
+	return nil
+}
+
 func validateBookingDraft(state ConversationState, requireContact bool) error {
 	if err := validateSelectedService(state); err != nil {
+		return err
+	}
+	if err := validateSelectedDate(state); err != nil {
 		return err
 	}
 	slot, ok := state.OfferedSlots[state.SelectedSlot]
@@ -276,6 +333,9 @@ func validateBookingDraft(state ConversationState, requireContact bool) error {
 	if slot.ServiceID != state.ServiceID {
 		return invalidState("selected slot belongs to another service")
 	}
+	if slot.Date != state.SelectedDate {
+		return invalidState("selected slot belongs to another date")
+	}
 	if requireContact && (strings.TrimSpace(state.CustomerName) == "" || strings.TrimSpace(state.CustomerPhone) == "") {
 		return invalidState("complete customer contact is required")
 	}
@@ -284,7 +344,7 @@ func validateBookingDraft(state ConversationState, requireContact bool) error {
 
 func isKnownStep(step Step) bool {
 	switch step {
-	case StepWaitingForService, StepWaitingForTime, StepWaitingForContact, StepWaitingForConfirmation, StepBookingInProgress, StepBooked, StepBookingUnknown, StepCancelled:
+	case StepWaitingForService, StepWaitingForDate, StepWaitingForTime, StepWaitingForContact, StepWaitingForConfirmation, StepBookingInProgress, StepBooked, StepBookingUnknown, StepCancelled:
 		return true
 	default:
 		return false
@@ -293,7 +353,7 @@ func isKnownStep(step Step) bool {
 
 func isKnownRequirement(requirement Requirement) bool {
 	switch requirement {
-	case RequirementNone, RequireService, RequireTime, RequireName, RequirePhone:
+	case RequirementNone, RequireService, RequireDate, RequireTime, RequireName, RequirePhone:
 		return true
 	default:
 		return false
