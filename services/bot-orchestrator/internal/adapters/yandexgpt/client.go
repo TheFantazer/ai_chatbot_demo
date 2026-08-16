@@ -11,6 +11,7 @@ import (
 var ErrNotImplemented = errors.New("YandexGPT client is not implemented")
 
 type Config struct {
+	BaseURL  string
 	APIKey   string
 	FolderID string
 	Model    string
@@ -22,6 +23,9 @@ type Client struct {
 }
 
 func New(config Config, httpClient *http.Client) *Client {
+	if config.BaseURL == "" {
+		config.BaseURL = defaultBaseURL
+	}
 	return &Client{config: config, http: httpClient}
 }
 
