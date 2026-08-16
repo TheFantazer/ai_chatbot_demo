@@ -36,6 +36,12 @@ func (s *MemoryStore) Save(_ context.Context, state ConversationState) error {
 
 func cloneState(state ConversationState) ConversationState {
 	copyOfState := state
+	if state.OfferedServices != nil {
+		copyOfState.OfferedServices = make(map[string]ServiceSnapshot, len(state.OfferedServices))
+		for id, service := range state.OfferedServices {
+			copyOfState.OfferedServices[id] = service
+		}
+	}
 	if state.OfferedSlots != nil {
 		copyOfState.OfferedSlots = make(map[string]SlotSnapshot, len(state.OfferedSlots))
 		for id, slot := range state.OfferedSlots {
