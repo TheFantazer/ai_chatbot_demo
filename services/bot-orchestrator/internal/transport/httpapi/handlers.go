@@ -2,7 +2,6 @@ package httpapi
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
 	"strings"
 
@@ -31,11 +30,6 @@ func (s *server) handleMessage(w http.ResponseWriter, r *http.Request) {
 
 	reply, err := s.app.HandleMessage(r.Context(), message)
 	if err != nil {
-		if errors.Is(err, application.ErrWorkflowNotImplemented) {
-			writeError(w, http.StatusNotImplemented, err.Error())
-			return
-		}
-
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
