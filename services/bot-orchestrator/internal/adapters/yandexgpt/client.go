@@ -144,6 +144,15 @@ func validateActionEnvelope(req application.InterpretationRequest, action applic
 			return fmt.Errorf("%w: slot_id was not offered", ErrInvalidModelResponse)
 		}
 	}
+	if action.Action == application.ActionChooseService || action.Action == application.ActionChangeService && strings.TrimSpace(action.Arguments.ServiceID) != "" {
+		serviceID := strings.TrimSpace(action.Arguments.ServiceID)
+		if serviceID == "" {
+			return fmt.Errorf("%w: %s requires service_id", ErrInvalidModelResponse, action.Action)
+		}
+		if _, ok := req.State.OfferedServices[serviceID]; !ok {
+			return fmt.Errorf("%w: service_id was not offered", ErrInvalidModelResponse)
+		}
+	}
 
 	return nil
 }

@@ -24,15 +24,16 @@ const systemPrompt = `Ты интерпретатор сообщений в сц
 Верни только JSON, соответствующий переданной JSON Schema, без Markdown и дополнительного текста.`
 
 type promptContext struct {
-	StateRevision    uint64                              `json:"state_revision"`
-	Step             application.Step                    `json:"step"`
-	Pending          application.Requirement             `json:"pending"`
-	ServiceID        string                              `json:"service_id,omitempty"`
-	SelectedSlot     string                              `json:"selected_slot,omitempty"`
-	AllowedActions   []application.ActionType            `json:"allowed_actions"`
-	OfferedSlots     map[string]application.SlotSnapshot `json:"offered_slots,omitempty"`
-	HasCustomerName  bool                                `json:"has_customer_name"`
-	HasCustomerPhone bool                                `json:"has_customer_phone"`
+	StateRevision    uint64                                 `json:"state_revision"`
+	Step             application.Step                       `json:"step"`
+	Pending          application.Requirement                `json:"pending"`
+	ServiceID        string                                 `json:"service_id,omitempty"`
+	SelectedSlot     string                                 `json:"selected_slot,omitempty"`
+	AllowedActions   []application.ActionType               `json:"allowed_actions"`
+	OfferedServices  map[string]application.ServiceSnapshot `json:"offered_services,omitempty"`
+	OfferedSlots     map[string]application.SlotSnapshot    `json:"offered_slots,omitempty"`
+	HasCustomerName  bool                                   `json:"has_customer_name"`
+	HasCustomerPhone bool                                   `json:"has_customer_phone"`
 }
 
 func (c *Client) buildCompletionRequest(req application.InterpretationRequest) (completionRequest, error) {
@@ -43,6 +44,7 @@ func (c *Client) buildCompletionRequest(req application.InterpretationRequest) (
 		return completionRequest{}, fmt.Errorf("%w: at least one allowed action is required", ErrInvalidInterpretationRequest)
 	}
 
+	chooseServiceAllowed := false
 	chooseTimeAllowed := false
 	for _, action := range req.AllowedActions {
 		if !isKnownAction(action) {
@@ -52,8 +54,14 @@ func (c *Client) buildCompletionRequest(req application.InterpretationRequest) (
 		if action == application.ActionChooseTime {
 			chooseTimeAllowed = true
 		}
+		if action == application.ActionChooseService {
+			chooseServiceAllowed = true
+		}
 	}
 
+	if chooseServiceAllowed && len(req.State.OfferedServices) == 0 {
+		return completionRequest{}, fmt.Errorf("%w: choose_service requires offered services", ErrInvalidInterpretationRequest)
+	}
 	if chooseTimeAllowed && len(req.State.OfferedSlots) == 0 {
 		return completionRequest{}, fmt.Errorf("%w: choose_time requires offered slots", ErrInvalidInterpretationRequest)
 	}
@@ -83,6 +91,7 @@ func (c *Client) buildCompletionRequest(req application.InterpretationRequest) (
 		ServiceID:        req.State.ServiceID,
 		SelectedSlot:     req.State.SelectedSlot,
 		AllowedActions:   req.AllowedActions,
+		OfferedServices:  req.State.OfferedServices,
 		OfferedSlots:     req.State.OfferedSlots,
 		HasCustomerName:  strings.TrimSpace(req.State.CustomerName) != "",
 		HasCustomerPhone: strings.TrimSpace(req.State.CustomerPhone) != "",
@@ -147,11 +156,13 @@ func buildJSONSchema(req application.InterpretationRequest) *jsonSchema {
 		slotIDs = append(slotIDs, slotID)
 	}
 	sort.Strings(slotIDs)
+	serviceIDs := make([]string, 0, len(req.State.OfferedServices))
+	for serviceID := range req.State.OfferedServices {
+		serviceIDs = append(serviceIDs, serviceID)
+	}
+	sort.Strings(serviceIDs)
 
 	argumentProperties := map[string]any{
-		"service_id": map[string]any{
-			"type": "string",
-		},
 		"name": map[string]any{
 			"type": "string",
 		},
@@ -161,6 +172,12 @@ func buildJSONSchema(req application.InterpretationRequest) *jsonSchema {
 		"topic": map[string]any{
 			"type": "string",
 		},
+	}
+	if len(serviceIDs) > 0 {
+		argumentProperties["service_id"] = map[string]any{
+			"type": "string",
+			"enum": serviceIDs,
+		}
 	}
 	if len(slotIDs) > 0 {
 		argumentProperties["slot_id"] = map[string]any{
